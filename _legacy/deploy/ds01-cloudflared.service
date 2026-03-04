@@ -1,0 +1,45 @@
+# DS01 Cloudflare Tunnel — one-time setup required before enabling this service:
+#
+# 1. Install cloudflared:
+#    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+#         -o /usr/local/bin/cloudflared
+#    chmod +x /usr/local/bin/cloudflared
+#
+# 2. Authenticate with Cloudflare (interactive, opens browser):
+#    cloudflared tunnel login
+#
+# 3. Create named tunnel:
+#    cloudflared tunnel create ds01-api
+#
+# 4. Create config file at /root/.cloudflared/config.yml:
+#    tunnel: <TUNNEL-UUID>
+#    credentials-file: /root/.cloudflared/<TUNNEL-UUID>.json
+#    ingress:
+#      - hostname: <YOUR-HOSTNAME>
+#        service: http://127.0.0.1:8765
+#      - service: http_status:404
+#
+# 5. Route DNS (if using custom domain):
+#    cloudflared tunnel route dns ds01-api <YOUR-HOSTNAME>
+#
+# 6. Enable and start:
+#    sudo systemctl enable --now ds01-cloudflared
+
+[Unit]
+Description=DS01 Cloudflare Tunnel (API off-campus access)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target ds01-api.service
+Wants=network-online.target ds01-api.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --config /root/.cloudflared/config.yml run
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ds01-cloudflared
+
+[Install]
+WantedBy=multi-user.target
