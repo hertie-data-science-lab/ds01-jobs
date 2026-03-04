@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""DS01 Job Submission API — Key Management CLI.
+
+Manages API keys for the DS01 job submission system.
+Keys are HMAC-signed bearer tokens stored as bcrypt hashes.
+"""
+
+import secrets
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import typer
+from passlib.context import CryptContext
+
+app = typer.Typer(help="DS01 job submission API key management.")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+DB_PATH = Path("/var/lib/ds01/api/ds01-jobs.db")
+KEY_EXPIRY_DAYS = 90
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_db() -> sqlite3.Connection:
+    if not DB_PATH.exists():
+        typer.echo(f"Error: Database not found at {DB_PATH}", err=True)
+        typer.echo(
+            "Has the API been started at least once? (it creates the database)",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return sqlite3.connect(str(DB_PATH))
+
+
+def _previous_key_existed(db: sqlite3.Connection, username: str) -> bool:
+    cursor = db.execute("SELECT 1 FROM api_keys WHERE username = ?", (username,))
+    return cursor.fetchone() is not None
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+@app.command("key-create")
+def key_create(username: str = typer.Argument(help="DS01 username to create key for")):
+    """Create an API key for a user. Prints the key once — store securely."""
+    db = _get_db()
+
+    had_previous = _previous_key_existed(db, username)
+
+    raw_key = f"ds01_{username}_{secrets.token_urlsafe(32)}"
+    key_hash = pwd_context.hash(raw_key)
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=KEY_EXPIRY_DAYS)
+
+    # INSERT OR REPLACE — UNIQUE constraint on username means this revokes the previous key
+    db.execute(
+        "INSERT OR REPLACE INTO api_keys (username, key_hash, created_at, expires_at, revoked) "
+        "VALUES (?, ?, ?, ?, 0)",
+        (username, key_hash, now.isoformat(), expires_at.isoformat()),
+    )
+    db.commit()
+    db.close()
+
+    typer.echo(f"\nAPI key for {username}:")
+    typer.echo(f"  {raw_key}")
+    typer.echo(f"\nExpires: {expires_at.strftime('%Y-%m-%d %H:%M UTC')}")
+    typer.echo("Store this key securely — it will not be shown again.")
+    if had_previous:
+        typer.echo("Note: Previous key for this user has been revoked.")
+
+
+@app.command("key-list")
+def key_list():
+    """List all API keys with status."""
+    db = _get_db()
+    cursor = db.execute(
+        "SELECT username, created_at, expires_at, revoked FROM api_keys ORDER BY username"
+    )
+    rows = cursor.fetchall()
+    db.close()
+
+    if not rows:
+        typer.echo("No API keys found.")
+        return
+
+    now = datetime.now(timezone.utc)
+    typer.echo(f"{'Username':<20} {'Status':<14} {'Created':<12} {'Expires':<12}")
+    typer.echo("-" * 60)
+
+    for username, created_at, expires_at, revoked in rows:
+        expires_dt = datetime.fromisoformat(expires_at)
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+
+        if revoked:
+            status = "revoked"
+        elif now > expires_dt:
+            status = "expired"
+        else:
+            days_left = (expires_dt - now).days
+            status = f"active ({days_left}d)"
+
+        created_short = created_at[:10]
+        expires_short = expires_at[:10]
+        typer.echo(f"{username:<20} {status:<14} {created_short:<12} {expires_short:<12}")
+
+
+@app.command("key-revoke")
+def key_revoke(username: str = typer.Argument(help="Username whose key to revoke")):
+    """Revoke the active API key for a user."""
+    db = _get_db()
+    cursor = db.execute(
+        "UPDATE api_keys SET revoked = 1 WHERE username = ? AND revoked = 0",
+        (username,),
+    )
+    db.commit()
+    db.close()
+
+    if cursor.rowcount == 0:
+        typer.echo(f"No active key found for {username}.")
+        raise typer.Exit(code=1)
+    else:
+        typer.echo(f"Key for {username} has been revoked.")
+
+
+if __name__ == "__main__":
+    app()
