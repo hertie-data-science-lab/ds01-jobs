@@ -6,6 +6,7 @@ and sync connection context manager for CLI usage.
 
 import sqlite3
 from collections.abc import AsyncGenerator, Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -61,6 +62,7 @@ async def get_db(db_path: Path | None = None) -> AsyncGenerator[aiosqlite.Connec
         yield db
 
 
+@contextmanager
 def get_db_sync(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     """Sync context manager for CLI database access.
 

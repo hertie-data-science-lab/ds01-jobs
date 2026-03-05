@@ -100,19 +100,11 @@ def test_get_db_sync_yields_connection_with_row_factory(tmp_path: Path):
     )
     conn.close()
 
-    gen = get_db_sync(db_path=db_path)
-    db = next(gen)
-
-    assert db.row_factory is sqlite3.Row
-    cursor = db.execute("SELECT 1 AS value")
-    row = cursor.fetchone()
-    assert row["value"] == 1
-
-    # Clean up generator
-    try:
-        next(gen)
-    except StopIteration:
-        pass
+    with get_db_sync(db_path=db_path) as db:
+        assert db.row_factory is sqlite3.Row
+        cursor = db.execute("SELECT 1 AS value")
+        row = cursor.fetchone()
+        assert row["value"] == 1
 
 
 @pytest.mark.asyncio
