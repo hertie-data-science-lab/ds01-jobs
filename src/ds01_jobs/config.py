@@ -21,3 +21,7 @@ class Settings(BaseSettings):
 
     # External config
     resource_limits_path: Path = Path("/opt/ds01-infra/config/runtime/resource-limits.yaml")
+
+    # Authentication
+    github_org: str = "hertie-data-science-lab"
+    key_expiry_days: int = 90
