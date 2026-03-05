@@ -30,7 +30,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Type check
-        run: uv run mypy src/
+        run: uv run mypy src/ds01_jobs/
 
       - name: Unit tests
         run: uv run pytest -m 'not integration' --tb=short

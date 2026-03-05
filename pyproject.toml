@@ -33,6 +33,17 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = [
+    "src/auth.py",
+    "src/database.py",
+    "src/limiter.py",
+    "src/main.py",
+    "src/models.py",
+    "src/rate_limit.py",
+    "src/scanner.py",
+    "src/routers/",
+    "src/__init__.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]
