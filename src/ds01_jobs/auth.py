@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -50,13 +51,13 @@ def _check_and_store_nonce(nonce: str) -> bool:
     return True
 
 
-async def _get_key_record(db: aiosqlite.Connection, key_id: str) -> aiosqlite.Row | None:
+async def _get_key_record(db: aiosqlite.Connection, key_id: str) -> sqlite3.Row | None:
     """Look up an active (non-revoked) API key by key_id."""
     cursor = await db.execute(
         "SELECT * FROM api_keys WHERE key_id = ? AND revoked = 0",
         (key_id,),
     )
-    return await cursor.fetchone()  # type: ignore[return-value]
+    return await cursor.fetchone()
 
 
 def _build_canonical(method: str, path: str, timestamp: str, nonce: str, body: bytes) -> str:

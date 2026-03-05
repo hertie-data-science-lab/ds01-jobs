@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-@limiter.exempt
+@limiter.exempt  # type: ignore[untyped-decorator]
 async def health(
     request: Request,
     db: aiosqlite.Connection = Depends(get_db),
