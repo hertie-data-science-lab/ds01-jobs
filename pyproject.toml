@@ -1,0 +1,57 @@
+[project]
+name = "ds01-jobs"
+version = "0.1.0"
+description = "Job submission service for the DS01 compute cluster"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "slowapi>=0.1.9",
+    "bcrypt>=4.0,<5.0",
+    "httpx>=0.27,<1.0",
+    "click>=8.0",
+    "pydantic-settings>=2.11.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+ds01-job-admin = "ds01_jobs.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.8,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9.0",
+    "mypy>=1.15.0",
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "types-pyyaml>=6.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests requiring GPU runner or external services (deselect with '-m \"not integration\"')",
+]
+
+[tool.uv]
+package = true
