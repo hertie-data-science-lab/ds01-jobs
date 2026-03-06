@@ -1,0 +1,258 @@
+"""Tests for ds01_jobs.rate_limit module - per-user rate limiting."""
+
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import aiosqlite
+import pytest
+
+from ds01_jobs.config import Settings
+from ds01_jobs.database import init_db
+from ds01_jobs.rate_limit import check_rate_limits, get_user_job_counts, get_user_limits
+
+
+def _test_settings(**overrides: object) -> Settings:
+    """Create a Settings instance isolated from .env files."""
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+
+
+async def _insert_job(
+    db: aiosqlite.Connection,
+    username: str = "testuser",
+    status: str = "queued",
+    created_at: str | None = None,
+) -> None:
+    """Insert a test job row."""
+    import uuid
+
+    now = created_at or datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, job_name, "
+        "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()),
+            username,
+            "https://github.com/test/repo",
+            "main",
+            1,
+            "test-job",
+            status,
+            now,
+            now,
+        ),
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_get_user_limits_defaults() -> None:
+    """No resource-limits.yaml returns settings defaults (3, 10)."""
+    settings = _test_settings(resource_limits_path=Path("/nonexistent/path.yaml"))
+    concurrent, daily = get_user_limits("someuser", settings)
+    assert concurrent == 3
+    assert daily == 10
+
+
+@pytest.mark.asyncio
+async def test_get_user_limits_from_yaml(tmp_path: Path) -> None:
+    """User mapped to student group gets group limits (2, 5)."""
+    yaml_path = tmp_path / "resource-limits.yaml"
+    yaml_path.write_text(
+        "groups:\n"
+        "  student:\n"
+        "    max_concurrent_jobs: 2\n"
+        "    max_daily_submissions: 5\n"
+        "  researcher:\n"
+        "    max_concurrent_jobs: 5\n"
+        "    max_daily_submissions: 20\n"
+        "users:\n"
+        "  alice: researcher\n"
+        "  bob: student\n"
+    )
+    settings = _test_settings(resource_limits_path=yaml_path)
+    concurrent, daily = get_user_limits("bob", settings)
+    assert concurrent == 2
+    assert daily == 5
+
+    concurrent, daily = get_user_limits("alice", settings)
+    assert concurrent == 5
+    assert daily == 20
+
+
+@pytest.mark.asyncio
+async def test_get_user_limits_user_not_in_yaml(tmp_path: Path) -> None:
+    """User not listed in YAML users section falls back to defaults."""
+    yaml_path = tmp_path / "resource-limits.yaml"
+    yaml_path.write_text(
+        "groups:\n"
+        "  student:\n"
+        "    max_concurrent_jobs: 2\n"
+        "    max_daily_submissions: 5\n"
+        "users:\n"
+        "  bob: student\n"
+    )
+    settings = _test_settings(resource_limits_path=yaml_path)
+    concurrent, daily = get_user_limits("unknown_user", settings)
+    assert concurrent == 3
+    assert daily == 10
+
+
+@pytest.mark.asyncio
+async def test_get_user_job_counts_no_jobs(tmp_path: Path) -> None:
+    """Empty jobs table returns (0, 0)."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+
+    async with aiosqlite.connect(db_path) as db:
+        concurrent, daily = await get_user_job_counts(db, "testuser")
+
+    assert concurrent == 0
+    assert daily == 0
+
+
+@pytest.mark.asyncio
+async def test_get_user_job_counts_with_active_jobs(tmp_path: Path) -> None:
+    """2 active jobs + 1 succeeded -> concurrent = 2."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+
+    async with aiosqlite.connect(db_path) as db:
+        await _insert_job(db, status="queued")
+        await _insert_job(db, status="running")
+        await _insert_job(db, status="succeeded")
+
+        concurrent, _daily = await get_user_job_counts(db, "testuser")
+
+    assert concurrent == 2
+
+
+@pytest.mark.asyncio
+async def test_get_user_job_counts_daily_count(tmp_path: Path) -> None:
+    """3 jobs today, 2 yesterday -> daily = 3."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+
+    now = datetime.now(UTC)
+    yesterday = (now - timedelta(days=1)).isoformat()
+
+    async with aiosqlite.connect(db_path) as db:
+        # 3 jobs today
+        await _insert_job(db, status="queued")
+        await _insert_job(db, status="running")
+        await _insert_job(db, status="succeeded")
+        # 2 jobs yesterday
+        await _insert_job(db, status="succeeded", created_at=yesterday)
+        await _insert_job(db, status="succeeded", created_at=yesterday)
+
+        _concurrent, daily = await get_user_job_counts(db, "testuser")
+
+    assert daily == 3
+
+
+@pytest.mark.asyncio
+async def test_check_rate_limits_passes(tmp_path: Path) -> None:
+    """Under both limits returns counts without raising."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        resource_limits_path=Path("/nonexistent"),
+        default_concurrent_limit=3,
+        default_daily_limit=10,
+    )
+
+    async with aiosqlite.connect(db_path) as db:
+        await _insert_job(db, status="queued")
+        result = await check_rate_limits(db, "testuser", settings)
+
+    concurrent_count, concurrent_limit, daily_count, daily_limit = result
+    assert concurrent_count == 1
+    assert concurrent_limit == 3
+    assert daily_count == 1
+    assert daily_limit == 10
+
+
+@pytest.mark.asyncio
+async def test_check_rate_limits_concurrent_exceeded(tmp_path: Path) -> None:
+    """At concurrent limit raises 429 with limit_type='concurrent'."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        resource_limits_path=Path("/nonexistent"),
+        default_concurrent_limit=2,
+        default_daily_limit=10,
+    )
+
+    async with aiosqlite.connect(db_path) as db:
+        await _insert_job(db, status="queued")
+        await _insert_job(db, status="running")
+
+        with pytest.raises(Exception) as exc_info:
+            await check_rate_limits(db, "testuser", settings)
+
+    exc = exc_info.value
+    assert exc.status_code == 429  # type: ignore[union-attr]
+    body = exc.detail  # type: ignore[union-attr]
+    assert body["error"]["limit_type"] == "concurrent"
+    assert body["error"]["current"] == 2
+    assert body["error"]["limit"] == 2
+    assert body["error"]["retry_after"] is None
+
+
+@pytest.mark.asyncio
+async def test_check_rate_limits_daily_exceeded(tmp_path: Path) -> None:
+    """At daily limit raises 429 with limit_type='daily'."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        resource_limits_path=Path("/nonexistent"),
+        default_concurrent_limit=10,
+        default_daily_limit=2,
+    )
+
+    async with aiosqlite.connect(db_path) as db:
+        # Insert 2 succeeded jobs (count toward daily but not concurrent)
+        await _insert_job(db, status="succeeded")
+        await _insert_job(db, status="succeeded")
+
+        with pytest.raises(Exception) as exc_info:
+            await check_rate_limits(db, "testuser", settings)
+
+    exc = exc_info.value
+    assert exc.status_code == 429  # type: ignore[union-attr]
+    body = exc.detail  # type: ignore[union-attr]
+    assert body["error"]["limit_type"] == "daily"
+    assert body["error"]["current"] == 2
+    assert body["error"]["limit"] == 2
+    assert body["error"]["retry_after"] is not None
+    assert body["error"]["retry_after"] > 0
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_429_body_structure(tmp_path: Path) -> None:
+    """Verify 429 response body matches the exact CONTEXT.md structure."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        resource_limits_path=Path("/nonexistent"),
+        default_concurrent_limit=1,
+        default_daily_limit=10,
+    )
+
+    async with aiosqlite.connect(db_path) as db:
+        await _insert_job(db, status="queued")
+
+        with pytest.raises(Exception) as exc_info:
+            await check_rate_limits(db, "testuser", settings)
+
+    exc = exc_info.value
+    body = exc.detail  # type: ignore[union-attr]
+
+    # Verify structure: {error: {type, limit_type, message, limit, current, retry_after}}
+    assert "error" in body
+    error = body["error"]
+    assert error["type"] == "rate_limit_error"
+    assert "limit_type" in error
+    assert "message" in error
+    assert "limit" in error
+    assert "current" in error
+    assert "retry_after" in error
