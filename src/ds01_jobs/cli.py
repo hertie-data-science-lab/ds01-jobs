@@ -319,8 +319,8 @@ def key_revoke(
             typer.confirm(f"Revoke key for {username}?", abort=True)
 
         conn.execute(
-            "UPDATE api_keys SET revoked = 1 WHERE username = ?",
-            (username,),
+            "UPDATE api_keys SET revoked = 1 WHERE id = ?",
+            (row["id"],),
         )
         conn.commit()
 

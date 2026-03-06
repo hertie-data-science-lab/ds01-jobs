@@ -17,7 +17,7 @@ from ds01_jobs.config import Settings
 SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL,
     key_id TEXT NOT NULL UNIQUE,
     key_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,

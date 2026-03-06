@@ -163,6 +163,17 @@ def test_key_create_duplicate_active_key(tmp_db, mock_github_member):
     assert result2.exit_code == 1
 
 
+def test_key_create_after_revoke(tmp_db, mock_github_member):
+    """key-create succeeds after the previous key is revoked."""
+    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-revoke", "researcher1", "--yes"])
+
+    result = runner.invoke(app, ["key-create", "researcher1", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["username"] == "researcher1"
+
+
 def test_key_create_custom_expires(tmp_db, mock_github_member):
     """key-create with --expires 30d sets expiry ~30 days from now."""
     result = runner.invoke(app, ["key-create", "researcher1", "--expires", "30d", "--json"])
