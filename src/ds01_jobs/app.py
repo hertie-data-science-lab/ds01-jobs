@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from ds01_jobs import __version__
 from ds01_jobs.database import init_db
 from ds01_jobs.health import router as health_router
+from ds01_jobs.jobs import router as jobs_router
 from ds01_jobs.middleware import limiter, rate_limit_handler
 
 
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(health_router)
+    app.include_router(jobs_router)
 
     return app
 
