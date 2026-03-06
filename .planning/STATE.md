@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 ## Current Position
 
 Phase: 2 of 7 (Authentication)
-Plan: 1 of 3 in current phase
-Status: In Progress
-Last activity: 2026-03-05 — Completed 02-01 (auth foundation - database, models, deps)
+Plan: 3 of 3 in current phase
+Status: Phase Complete
+Last activity: 2026-03-06 — Completed 02-03 (admin CLI)
 
-Progress: [███░░░░░░░] 20%
+Progress: [████░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 2min
-- Total execution time: 6min
+- Total plans completed: 5
+- Average duration: 3min
+- Total execution time: 16min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 2 | 4min | 2min |
-| 02-authentication | 1 | 2min | 2min |
+| 02-authentication | 3 | 12min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2min), 01-02 (2min), 02-01 (2min)
+- Last 5 plans: 01-01 (2min), 01-02 (2min), 02-01 (2min), 02-02 (5min), 02-03 (5min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -57,6 +57,12 @@ Recent decisions affecting current work:
 - Phase 4 (runner) is highest-risk phase — needs its own phase-level research pass before implementation.
 - Database functions accept optional db_path param for testability, defaulting to Settings
 - Async/sync database split: aiosqlite for FastAPI handlers, sqlite3 for Typer CLI commands
+- Nonce cache is in-memory dict with monotonic clock TTL - cleared on restart
+- bcrypt.checkpw runs via asyncio.to_thread to avoid blocking event loop
+- All auth failures return generic 401 - specific reasons logged server-side
+- Rate limiter keyed by key_id from Bearer token, falls back to client IP
+- key-rotate uses UPDATE approach (overwrites existing row) for simplicity - single-key-per-user means no history needed
+- Added @contextmanager decorator to get_db_sync for proper with-statement usage
 
 ### Pending Todos
 
@@ -71,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-05
-Stopped at: Completed 02-01-PLAN.md (auth foundation - database, models, deps)
+Last session: 2026-03-06
+Stopped at: Completed 02-02-PLAN.md (core API auth layer). Note: 02-03-SUMMARY.md exists from prior run.
 Resume file: None

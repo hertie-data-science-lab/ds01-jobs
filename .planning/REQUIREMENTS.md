@@ -18,13 +18,13 @@ Requirements for v0.1.0 milestone. Each maps to roadmap phases.
 
 ### Authentication
 
-- [ ] **AUTH-01**: User can authenticate via HMAC-SHA256 signed API key (Bearer token + X-Timestamp + X-Nonce + X-Signature headers)
+- [x] **AUTH-01**: User can authenticate via HMAC-SHA256 signed API key (Bearer token + X-Timestamp + X-Nonce + X-Signature headers)
 - [x] **AUTH-02**: API keys stored as bcrypt hashes with 90-day expiry and single-key-per-user rotation
-- [ ] **AUTH-03**: Expiry warning header (X-DS01-Key-Expiry-Warning) set when key is within 14 days of expiry
-- [ ] **AUTH-04**: Nonce replay protection via in-memory cache with 5-minute TTL
-- [ ] **AUTH-05**: Admin can create API keys via `ds01-job-admin key-create <username>` — verifies GitHub org membership (hertie-data-science-lab) before creation; key printed once, never stored in plaintext
-- [ ] **AUTH-06**: Admin can list all API keys with status via `ds01-job-admin key-list`
-- [ ] **AUTH-07**: Admin can revoke API keys via `ds01-job-admin key-revoke <username>`
+- [x] **AUTH-03**: Expiry warning header (X-DS01-Key-Expiry-Warning) set when key is within 14 days of expiry
+- [x] **AUTH-04**: Nonce replay protection via in-memory cache with 5-minute TTL
+- [x] **AUTH-05**: Admin can create API keys via `ds01-job-admin key-create <username>` — verifies GitHub org membership (hertie-data-science-lab) before creation; key printed once, never stored in plaintext
+- [x] **AUTH-06**: Admin can list all API keys with status via `ds01-job-admin key-list`
+- [x] **AUTH-07**: Admin can revoke API keys via `ds01-job-admin key-revoke <username>`
 
 ### Job Submission
 
@@ -48,7 +48,7 @@ Requirements for v0.1.0 milestone. Each maps to roadmap phases.
 - [ ] **RATE-02**: Per-user daily job limit enforced before any job is queued
 - [ ] **RATE-03**: Limits configurable per group via ds01-infra's resource-limits.yaml (read directly, no import hack)
 - [ ] **RATE-04**: 429 response includes retry_after_seconds, limit_type, current_count, max_allowed
-- [ ] **RATE-05**: Global API rate limit (60 req/min per API key) via slowapi for brute-force protection
+- [x] **RATE-05**: Global API rate limit (60 req/min per API key) via slowapi for brute-force protection
 
 ### Job Runner
 
@@ -75,7 +75,7 @@ Requirements for v0.1.0 milestone. Each maps to roadmap phases.
 
 - [x] **NET-01**: API bound to 127.0.0.1:8765 only — never 0.0.0.0
 - [ ] **NET-02**: Cloudflare Tunnel (named, not quick) proxies inbound HTTPS to the API
-- [ ] **NET-03**: Health check endpoint at GET /health returns {status, version}
+- [x] **NET-03**: Health check endpoint at GET /health returns {status, version}
 
 ### Deployment
 
@@ -134,13 +134,13 @@ Deferred to future milestones. Not in current roadmap.
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
-| AUTH-01 | Phase 2 | Pending |
+| AUTH-01 | Phase 2 | Complete |
 | AUTH-02 | Phase 2 | Complete |
-| AUTH-03 | Phase 2 | Pending |
-| AUTH-04 | Phase 2 | Pending |
-| AUTH-05 | Phase 2 | Pending |
-| AUTH-06 | Phase 2 | Pending |
-| AUTH-07 | Phase 2 | Pending |
+| AUTH-03 | Phase 2 | Complete |
+| AUTH-04 | Phase 2 | Complete |
+| AUTH-05 | Phase 2 | Complete |
+| AUTH-06 | Phase 2 | Complete |
+| AUTH-07 | Phase 2 | Complete |
 | JOB-01 | Phase 3 | Pending |
 | JOB-02 | Phase 3 | Pending |
 | JOB-03 | Phase 3 | Pending |
@@ -155,7 +155,7 @@ Deferred to future milestones. Not in current roadmap.
 | RATE-02 | Phase 3 | Pending |
 | RATE-03 | Phase 3 | Pending |
 | RATE-04 | Phase 3 | Pending |
-| RATE-05 | Phase 2 | Pending |
+| RATE-05 | Phase 2 | Complete |
 | RUN-01 | Phase 4 | Pending |
 | RUN-02 | Phase 4 | Pending |
 | RUN-03 | Phase 4 | Pending |
@@ -173,7 +173,7 @@ Deferred to future milestones. Not in current roadmap.
 | STAT-04 | Phase 5 | Pending |
 | NET-01 | Phase 1 | Complete |
 | NET-02 | Phase 7 | Pending |
-| NET-03 | Phase 2 | Pending |
+| NET-03 | Phase 2 | Complete |
 | CLI-01 | Phase 6 | Pending |
 | CLI-02 | Phase 6 | Pending |
 | GHA-01 | Phase 6 | Pending |
