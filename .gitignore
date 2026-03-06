@@ -22,6 +22,9 @@ htmlcov/
 .venv/
 venv/
 
+# Runtime data
+data/
+
 # Environment
 .env
 .env.*
