@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
+from ds01_jobs.models import RateLimitResponse
+
 
 def _get_api_key_identifier(request: Request) -> str:
     """Extract rate limit key from the request.
@@ -29,12 +31,11 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
     """Custom 429 handler returning structured JSON body."""
     return JSONResponse(
         status_code=429,
-        content={
-            "error": "rate_limit_exceeded",
-            "retry_after_seconds": 60,
-            "limit_type": "global",
-            "current_count": 60,
-            "max_allowed": 60,
-        },
+        content=RateLimitResponse(
+            retry_after_seconds=60,
+            limit_type="global",
+            current_count=60,
+            max_allowed=60,
+        ).model_dump(),
         headers={"Retry-After": "60"},
     )

@@ -134,7 +134,7 @@ async def get_current_user(
     try:
         req_time = float(timestamp_str)
     except ValueError:
-        raise _auth_failed(request, "invalid timestamp format", username=username)
+        raise _auth_failed(request, "invalid timestamp format", username=username) from None
 
     if abs(time.time() - req_time) > HMAC_TOLERANCE_SECONDS:
         raise _auth_failed(request, "stale timestamp", username=username)

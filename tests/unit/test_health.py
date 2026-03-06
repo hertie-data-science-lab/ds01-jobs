@@ -22,7 +22,6 @@ def _make_app(db_path: Path):
     async def _override_get_db():
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            await db.execute("PRAGMA journal_mode=WAL")
             yield db
 
     app.dependency_overrides[get_db] = _override_get_db

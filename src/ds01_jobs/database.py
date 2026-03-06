@@ -7,6 +7,7 @@ and sync connection context manager for CLI usage.
 import sqlite3
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 
 import aiosqlite
@@ -28,8 +29,9 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
 """
 
 
+@lru_cache(maxsize=1)
 def _get_db_path() -> Path:
-    """Return the database path from settings."""
+    """Return the database path from settings (cached)."""
     return Settings(_env_file=None).db_path
 
 
@@ -58,7 +60,6 @@ async def get_db(db_path: Path | None = None) -> AsyncGenerator[aiosqlite.Connec
 
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        await db.execute("PRAGMA journal_mode=WAL")
         yield db
 
 
@@ -72,7 +73,6 @@ def get_db_sync(db_path: Path | None = None) -> Generator[sqlite3.Connection, No
     path = db_path or _get_db_path()
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
     finally:

@@ -25,6 +25,47 @@ app = typer.Typer(
 )
 
 
+def _hash_key(raw_key: str) -> str:
+    """Hash an API key with bcrypt (rounds=12)."""
+    return bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+def _print_key_result(
+    username: str,
+    raw_key: str,
+    key_id: str,
+    expires_date: str,
+    action: str,
+    json_output: bool,
+) -> None:
+    """Display a key creation/rotation result."""
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "username": username,
+                    "key": raw_key,
+                    "key_id": key_id,
+                    "expires_at": expires_date,
+                },
+                indent=2,
+            )
+        )
+    else:
+        typer.echo(f"API Key {action} successfully")
+        typer.echo("")
+        typer.echo(f"Key:     {raw_key}")
+        typer.echo("")
+        typer.echo(f"User:    {username}")
+        typer.echo(f"Expires: {expires_date}")
+        typer.echo("")
+        typer.echo("Setup instructions (send to researcher):")
+        typer.echo("\u2500" * 41)
+        typer.echo("mkdir -p ~/.config/ds01")
+        typer.echo(f'echo "DS01_API_KEY={raw_key}" > ~/.config/ds01/credentials')
+        typer.echo("\u2500" * 41)
+
+
 def generate_api_key() -> tuple[str, str]:
     """Generate an API key with ds01_ prefix.
 
@@ -146,46 +187,21 @@ def key_create(
 
         # Generate and hash key
         raw_key, key_id = generate_api_key()
-        key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt(rounds=12)).decode()
+        key_hash = _hash_key(raw_key)
 
         now = datetime.now(UTC)
-        created_at = now.isoformat()
-        expires_at = (now + timedelta(days=days)).isoformat()
+        expires_dt = now + timedelta(days=days)
 
         conn.execute(
             "INSERT INTO api_keys (username, key_id, key_hash, created_at, expires_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (username, key_id, key_hash, created_at, expires_at),
+            (username, key_id, key_hash, now.isoformat(), expires_dt.isoformat()),
         )
         conn.commit()
 
-    expires_date = (now + timedelta(days=days)).strftime("%Y-%m-%d")
-
-    if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "username": username,
-                    "key": raw_key,
-                    "key_id": key_id,
-                    "expires_at": expires_date,
-                },
-                indent=2,
-            )
-        )
-    else:
-        typer.echo("API Key created successfully")
-        typer.echo("")
-        typer.echo(f"Key:     {raw_key}")
-        typer.echo("")
-        typer.echo(f"User:    {username}")
-        typer.echo(f"Expires: {expires_date}")
-        typer.echo("")
-        typer.echo("Setup instructions (send to researcher):")
-        typer.echo("\u2500" * 41)
-        typer.echo("mkdir -p ~/.config/ds01")
-        typer.echo(f'echo "DS01_API_KEY={raw_key}" > ~/.config/ds01/credentials')
-        typer.echo("\u2500" * 41)
+    _print_key_result(
+        username, raw_key, key_id, expires_dt.strftime("%Y-%m-%d"), "created", json_output
+    )
 
 
 @app.command("key-list")
@@ -314,44 +330,19 @@ def key_rotate(
 
         # Generate new key
         raw_key, key_id = generate_api_key()
-        key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt(rounds=12)).decode()
+        key_hash = _hash_key(raw_key)
 
         now = datetime.now(UTC)
-        created_at = now.isoformat()
-        expires_at = (now + timedelta(days=days)).isoformat()
+        expires_dt = now + timedelta(days=days)
 
         # Atomic rotation: update the existing row with new key data
         conn.execute(
             "UPDATE api_keys SET key_id = ?, key_hash = ?, created_at = ?, "
             "expires_at = ?, revoked = 0, last_used_at = NULL WHERE username = ?",
-            (key_id, key_hash, created_at, expires_at, username),
+            (key_id, key_hash, now.isoformat(), expires_dt.isoformat(), username),
         )
         conn.commit()
 
-    expires_date = (now + timedelta(days=days)).strftime("%Y-%m-%d")
-
-    if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "username": username,
-                    "key": raw_key,
-                    "key_id": key_id,
-                    "expires_at": expires_date,
-                },
-                indent=2,
-            )
-        )
-    else:
-        typer.echo("API Key rotated successfully")
-        typer.echo("")
-        typer.echo(f"Key:     {raw_key}")
-        typer.echo("")
-        typer.echo(f"User:    {username}")
-        typer.echo(f"Expires: {expires_date}")
-        typer.echo("")
-        typer.echo("Setup instructions (send to researcher):")
-        typer.echo("\u2500" * 41)
-        typer.echo("mkdir -p ~/.config/ds01")
-        typer.echo(f'echo "DS01_API_KEY={raw_key}" > ~/.config/ds01/credentials')
-        typer.echo("\u2500" * 41)
+    _print_key_result(
+        username, raw_key, key_id, expires_dt.strftime("%Y-%m-%d"), "rotated", json_output
+    )

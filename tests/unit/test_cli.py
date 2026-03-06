@@ -39,7 +39,6 @@ def tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def _patched_get_db_sync(db_path_arg=None):
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
         finally:
