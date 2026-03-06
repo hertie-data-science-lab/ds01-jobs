@@ -1,0 +1,4 @@
+exclude = [
+    ".planning/brownfield/",
+    "_legacy/",
+]
