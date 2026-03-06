@@ -9,7 +9,7 @@ import bcrypt
 import pytest
 from typer.testing import CliRunner
 
-from ds01_jobs.cli import app, generate_api_key, parse_duration
+from ds01_jobs.cli import _resolve_github_token, app, generate_api_key, parse_duration
 from ds01_jobs.database import SCHEMA_SQL
 
 runner = CliRunner()
@@ -59,6 +59,35 @@ def mock_github_member(monkeypatch: pytest.MonkeyPatch):
 def mock_github_non_member(monkeypatch: pytest.MonkeyPatch):
     """Mock check_org_membership to return False."""
     monkeypatch.setattr("ds01_jobs.cli.check_org_membership", lambda u, o: False)
+
+
+# --- Token resolution tests ---
+
+
+def test_resolve_github_token_from_env(monkeypatch: pytest.MonkeyPatch):
+    """GITHUB_TOKEN env var takes priority."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test123")
+    assert _resolve_github_token() == "ghp_test123"
+
+
+def test_resolve_github_token_from_gh_cli(monkeypatch: pytest.MonkeyPatch):
+    """Falls back to gh auth token when env var unset."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "ds01_jobs.cli.subprocess.run",
+        lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "ghp_from_cli\n"})(),
+    )
+    assert _resolve_github_token() == "ghp_from_cli"
+
+
+def test_resolve_github_token_none_when_unavailable(monkeypatch: pytest.MonkeyPatch):
+    """Returns None when neither env var nor gh CLI available."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "ds01_jobs.cli.subprocess.run",
+        lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    assert _resolve_github_token() is None
 
 
 # --- Helper function tests ---

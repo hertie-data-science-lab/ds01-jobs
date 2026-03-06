@@ -6,9 +6,11 @@ for managing researcher API keys.
 
 import base64
 import json
+import os
 import re
 import secrets
 import sqlite3
+import subprocess
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -98,11 +100,33 @@ def parse_duration(duration: str) -> int:
     return int(match.group(1))
 
 
+def _resolve_github_token() -> str | None:
+    """Resolve a GitHub token from GITHUB_TOKEN env var or gh CLI."""
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return None
+
+
 def check_org_membership(username: str, org: str) -> bool:
     """Check GitHub organisation membership.
 
-    Uses authenticated endpoint if GITHUB_TOKEN is set, otherwise falls back
-    to public members endpoint.
+    Resolves a GitHub token from (in order): GITHUB_TOKEN env var, gh CLI.
+    With a token, uses the authenticated members endpoint (sees private
+    memberships). Without a token, falls back to the public members endpoint.
 
     Args:
         username: GitHub username to check.
@@ -111,9 +135,7 @@ def check_org_membership(username: str, org: str) -> bool:
     Returns:
         True if user is a member, False otherwise.
     """
-    import os
-
-    token = os.environ.get("GITHUB_TOKEN")
+    token = _resolve_github_token()
     headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
 
     if token:
@@ -157,13 +179,17 @@ def _get_active_key(conn: sqlite3.Connection, username: str) -> sqlite3.Row | No
 
 @app.command("key-create")
 def key_create(
-    username: str,
+    username: Annotated[str, typer.Argument(help="GitHub username (must be a member of the org)")],
     expires: Annotated[
         str, typer.Option(help="Key validity duration (e.g. 90d, 30d, 180d)")
     ] = "90d",
     json_output: Annotated[bool, typer.Option("--json", help="JSON output")] = False,
 ) -> None:
-    """Create a new API key for a researcher."""
+    """Create a new API key for a researcher.
+
+    USERNAME must be the researcher's GitHub username. Org membership is
+    verified via the GitHub API (requires gh CLI or GITHUB_TOKEN).
+    """
     settings = Settings(_env_file=None)
 
     # Check GitHub org membership
