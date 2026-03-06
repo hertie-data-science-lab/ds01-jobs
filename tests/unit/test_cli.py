@@ -35,7 +35,6 @@ def tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Also patch get_db_sync to use temp path
     from contextlib import contextmanager
 
-
     @contextmanager
     def _patched_get_db_sync(db_path_arg=None):
         conn = sqlite3.connect(db_path)

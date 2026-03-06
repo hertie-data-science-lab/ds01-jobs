@@ -51,9 +51,9 @@ Plans:
   7. The global rate limiter returns 429 after 60 requests per minute from the same API key
 **Plans**: 3 plans
 Plans:
-- [ ] 02-01-PLAN.md — Database layer, response models, config extensions, dependency updates
-- [ ] 02-02-PLAN.md — HMAC auth dependency, health endpoint, rate limiter, app factory
-- [ ] 02-03-PLAN.md — Admin CLI (key-create, key-list, key-revoke, key-rotate)
+- [x] 02-01-PLAN.md — Database layer, response models, config extensions, dependency updates
+- [x] 02-02-PLAN.md — HMAC auth dependency, health endpoint, rate limiter, app factory
+- [x] 02-03-PLAN.md — Admin CLI (key-create, key-list, key-revoke, key-rotate)
 
 ### Phase 3: Job Submission
 **Goal**: Authenticated users can submit GPU jobs, with Dockerfile scanning and rate limit enforcement before any job reaches the queue
@@ -123,7 +123,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-05 |
-| 2. Authentication | 1/3 | In Progress | - |
+| 2. Authentication | 3/3 | In Progress | - |
 | 3. Job Submission | 0/TBD | Not started | - |
 | 4. Job Runner | 0/TBD | Not started | - |
 | 5. Status and Results | 0/TBD | Not started | - |
