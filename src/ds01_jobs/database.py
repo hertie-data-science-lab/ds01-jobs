@@ -26,6 +26,23 @@ CREATE TABLE IF NOT EXISTS api_keys (
     last_used_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    repo_url TEXT NOT NULL,
+    branch TEXT NOT NULL DEFAULT 'main',
+    gpu_count INTEGER NOT NULL DEFAULT 1,
+    job_name TEXT NOT NULL,
+    timeout_seconds INTEGER,
+    dockerfile_content TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (username) REFERENCES api_keys(username)
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_username_status ON jobs(username, status);
+CREATE INDEX IF NOT EXISTS idx_jobs_username_created ON jobs(username, created_at);
 """
 
 
