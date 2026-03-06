@@ -26,11 +26,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Return structured 422 for validation errors."""
+    """Return Stripe-like structured 422 for validation errors."""
+    errors = []
+    for err in exc.errors():
+        # Build field path, skipping the "body" prefix that Pydantic adds
+        field = ".".join(str(loc) for loc in err.get("loc", []) if loc != "body")
+        errors.append(
+            {
+                "field": field or "unknown",
+                "code": err.get("type", "validation_error"),
+                "message": err.get("msg", "Validation failed"),
+            }
+        )
     return JSONResponse(
         status_code=422,
         content={
-            "detail": exc.errors(),
+            "error": {
+                "type": "validation_error",
+                "message": "Request validation failed",
+                "errors": errors,
+            }
         },
     )
 
