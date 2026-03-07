@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     error_summary TEXT,
     started_at TEXT,
     completed_at TEXT,
+    phase_timestamps TEXT DEFAULT '{}',
     FOREIGN KEY (username) REFERENCES api_keys(username)
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);

@@ -92,3 +92,84 @@ class ScanViolationModel(BaseModel):
     severity: str
     rule: str
     message: str
+
+
+# --- Status and results models ---
+
+
+class PhaseTimestamp(BaseModel):
+    """Start/end timestamps for a single job phase."""
+
+    started_at: str
+    ended_at: str | None = None
+
+
+class JobError(BaseModel):
+    """Structured error info for failed jobs."""
+
+    phase: str
+    message: str
+    exit_code: int | None = None
+
+
+class JobDetailResponse(BaseModel):
+    """Response for GET /api/v1/jobs/{id}."""
+
+    job_id: str
+    status: str
+    job_name: str
+    repo_url: str
+    branch: str
+    gpu_count: int
+    submitted_by: str
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    phases: dict[str, PhaseTimestamp]
+    error: JobError | None = None
+    queue_position: int | None = None
+
+
+class JobSummary(BaseModel):
+    """Single job entry in a listing response."""
+
+    job_id: str
+    status: str
+    job_name: str
+    repo_url: str
+    created_at: str
+    completed_at: str | None = None
+
+
+class JobListResponse(BaseModel):
+    """Response for GET /api/v1/jobs."""
+
+    jobs: list[JobSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class JobLogsResponse(BaseModel):
+    """Response for GET /api/v1/jobs/{id}/logs."""
+
+    job_id: str
+    logs: dict[str, str]
+    truncated: dict[str, bool] | None = None
+
+
+class UsageCount(BaseModel):
+    """Current usage vs configured limit."""
+
+    used: int
+    limit: int
+
+
+class QuotaResponse(BaseModel):
+    """Response for GET /api/v1/users/me/quota."""
+
+    username: str
+    group: str
+    concurrent: UsageCount
+    daily: UsageCount
+    max_result_size_mb: int
