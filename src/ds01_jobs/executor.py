@@ -1,6 +1,7 @@
 """Job executor - runs a single job through clone, build, run, collect, cleanup."""
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -62,12 +63,17 @@ class JobExecutor:
         workspace.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Set started_at
+            # Set started_at and record queued phase timestamp
             async with aiosqlite.connect(db_path) as db:
                 now = datetime.now(UTC).isoformat()
+                # Read existing created_at for the queued started_at
+                cursor = await db.execute("SELECT created_at FROM jobs WHERE id=?", (job_id,))
+                row = await cursor.fetchone()
+                created_at = row[0] if row else now
+                timestamps = {"queued": {"started_at": created_at, "ended_at": now}}
                 await db.execute(
-                    "UPDATE jobs SET started_at=?, updated_at=? WHERE id=?",
-                    (now, now, job_id),
+                    "UPDATE jobs SET started_at=?, updated_at=?, phase_timestamps=? WHERE id=?",
+                    (now, now, json.dumps(timestamps), job_id),
                 )
                 await db.commit()
 
@@ -113,24 +119,52 @@ class JobExecutor:
     ) -> None:
         """Atomically update job status in SQLite."""
         now = datetime.now(UTC).isoformat()
+        phase_order = ["cloning", "building", "running"]
+
         async with aiosqlite.connect(db_path) as db:
+            # Read current phase_timestamps
+            cursor = await db.execute("SELECT phase_timestamps FROM jobs WHERE id=?", (job_id,))
+            row = await cursor.fetchone()
+            timestamps: dict[str, dict[str, str | None]] = (
+                json.loads(row[0]) if row and row[0] else {}
+            )
+
+            # Update timestamps based on the new status
+            if status in phase_order:
+                # Close the previous phase if applicable
+                idx = phase_order.index(status)
+                if idx > 0:
+                    prev_phase = phase_order[idx - 1]
+                    if prev_phase in timestamps and timestamps[prev_phase].get("ended_at") is None:
+                        timestamps[prev_phase]["ended_at"] = now
+                # Start the new phase
+                timestamps[status] = {"started_at": now, "ended_at": None}
+            elif status in ("succeeded", "failed"):
+                # Close whatever phase was last active
+                for phase in reversed(phase_order):
+                    if phase in timestamps and timestamps[phase].get("ended_at") is None:
+                        timestamps[phase]["ended_at"] = now
+                        break
+
+            ts_json = json.dumps(timestamps)
+
             if status in ("succeeded", "failed"):
                 await db.execute(
                     "UPDATE jobs SET status=?, updated_at=?, completed_at=?, "
-                    "failed_phase=?, exit_code=?, error_summary=? WHERE id=?",
-                    (status, now, now, failed_phase, exit_code, error_summary, job_id),
+                    "failed_phase=?, exit_code=?, error_summary=?, phase_timestamps=? WHERE id=?",
+                    (status, now, now, failed_phase, exit_code, error_summary, ts_json, job_id),
                 )
             elif status == "cloning":
                 await db.execute(
                     "UPDATE jobs SET status=?, updated_at=?, started_at=?, "
-                    "failed_phase=?, exit_code=?, error_summary=? WHERE id=?",
-                    (status, now, now, failed_phase, exit_code, error_summary, job_id),
+                    "failed_phase=?, exit_code=?, error_summary=?, phase_timestamps=? WHERE id=?",
+                    (status, now, now, failed_phase, exit_code, error_summary, ts_json, job_id),
                 )
             else:
                 await db.execute(
                     "UPDATE jobs SET status=?, updated_at=?, "
-                    "failed_phase=?, exit_code=?, error_summary=? WHERE id=?",
-                    (status, now, failed_phase, exit_code, error_summary, job_id),
+                    "failed_phase=?, exit_code=?, error_summary=?, phase_timestamps=? WHERE id=?",
+                    (status, now, failed_phase, exit_code, error_summary, ts_json, job_id),
                 )
             await db.commit()
 

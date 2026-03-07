@@ -51,6 +51,32 @@ def get_user_limits(username: str, settings: Settings) -> tuple[int, int]:
     return concurrent, daily
 
 
+def get_user_quota_info(username: str, settings: Settings) -> tuple[str, int, int, int]:
+    """Return (group_name, concurrent_limit, daily_limit, max_result_size_mb) for a user.
+
+    Reads group membership and limits from resource-limits.yaml,
+    falling back to settings defaults for unmapped users.
+    """
+    concurrent = settings.default_concurrent_limit
+    daily = settings.default_daily_limit
+    max_result_mb = settings.default_max_result_size_mb
+    group = "default"
+
+    data = load_resource_limits(settings.resource_limits_path)
+    groups = data.get("groups", {})
+    users = data.get("users", {})
+
+    group_name = users.get(username)
+    if group_name and group_name in groups:
+        group = group_name
+        group_cfg = groups[group_name]
+        concurrent = group_cfg.get("max_concurrent_jobs", concurrent)
+        daily = group_cfg.get("max_daily_submissions", daily)
+        max_result_mb = group_cfg.get("max_result_size_mb", max_result_mb)
+
+    return group, concurrent, daily, max_result_mb
+
+
 async def get_user_job_counts(db: aiosqlite.Connection, username: str) -> tuple[int, int]:
     """Return (concurrent_active_count, daily_submission_count) for a user."""
     # Concurrent: jobs in active statuses

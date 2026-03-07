@@ -8,7 +8,12 @@ import pytest
 
 from ds01_jobs.config import Settings
 from ds01_jobs.database import init_db
-from ds01_jobs.rate_limit import check_rate_limits, get_user_job_counts, get_user_limits
+from ds01_jobs.rate_limit import (
+    check_rate_limits,
+    get_user_job_counts,
+    get_user_limits,
+    get_user_quota_info,
+)
 
 
 def _test_settings(**overrides: object) -> Settings:
@@ -256,3 +261,55 @@ async def test_rate_limit_429_body_structure(tmp_path: Path) -> None:
     assert "limit" in error
     assert "current" in error
     assert "retry_after" in error
+
+
+# --- get_user_quota_info tests ---
+
+
+def test_get_user_quota_info_defaults() -> None:
+    """No YAML file returns default group and settings defaults."""
+    settings = _test_settings(resource_limits_path=Path("/nonexistent/path.yaml"))
+    group, concurrent, daily, max_result_mb = get_user_quota_info("someuser", settings)
+    assert group == "default"
+    assert concurrent == 3
+    assert daily == 10
+    assert max_result_mb == 1024
+
+
+def test_get_user_quota_info_from_yaml(tmp_path: Path) -> None:
+    """User mapped to student group with max_result_size_mb returns group values."""
+    yaml_path = tmp_path / "resource-limits.yaml"
+    yaml_path.write_text(
+        "groups:\n"
+        "  student:\n"
+        "    max_concurrent_jobs: 2\n"
+        "    max_daily_submissions: 5\n"
+        "    max_result_size_mb: 512\n"
+        "users:\n"
+        "  bob: student\n"
+    )
+    settings = _test_settings(resource_limits_path=yaml_path)
+    group, concurrent, daily, max_result_mb = get_user_quota_info("bob", settings)
+    assert group == "student"
+    assert concurrent == 2
+    assert daily == 5
+    assert max_result_mb == 512
+
+
+def test_get_user_quota_info_no_result_size_in_yaml(tmp_path: Path) -> None:
+    """Group without max_result_size_mb falls back to settings default."""
+    yaml_path = tmp_path / "resource-limits.yaml"
+    yaml_path.write_text(
+        "groups:\n"
+        "  researcher:\n"
+        "    max_concurrent_jobs: 5\n"
+        "    max_daily_submissions: 20\n"
+        "users:\n"
+        "  alice: researcher\n"
+    )
+    settings = _test_settings(resource_limits_path=yaml_path)
+    group, concurrent, daily, max_result_mb = get_user_quota_info("alice", settings)
+    assert group == "researcher"
+    assert concurrent == 5
+    assert daily == 20
+    assert max_result_mb == 1024
