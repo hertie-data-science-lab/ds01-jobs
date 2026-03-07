@@ -1,7 +1,9 @@
-"""Job submission endpoint for ds01-jobs.
+"""Job endpoints for ds01-jobs.
 
 POST /api/v1/jobs orchestrates the full validation pipeline and returns
 202 Accepted with a queued job.
+
+POST /api/v1/jobs/{job_id}/cancel marks a job as cancelled (failed).
 """
 
 import uuid
@@ -179,3 +181,42 @@ async def submit_job(
         status_url=f"/api/v1/jobs/{job_id}",
         created_at=now_iso,
     )
+
+
+ACTIVE_STATUSES = ("queued", "cloning", "building", "running")
+
+
+@router.post("/jobs/{job_id}/cancel", status_code=200)
+async def cancel_job(
+    job_id: str,
+    user: dict[str, str] = Depends(get_current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Cancel a job by setting its status to failed."""
+    # 1. Look up job
+    cursor = await db.execute("SELECT username, status FROM jobs WHERE id = ?", (job_id,))
+    row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # 2. Ownership check
+    if row["username"] != user["username"]:
+        raise HTTPException(status_code=403, detail="Not your job")
+
+    # 3. Status check
+    if row["status"] not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Job is already {row['status']}")
+
+    # 4. Atomic update with optimistic concurrency
+    now_iso = datetime.now(UTC).isoformat()
+    update_cursor = await db.execute(
+        "UPDATE jobs SET status='failed', updated_at=?, error_summary='Cancelled by user' "
+        "WHERE id=? AND status IN ('queued','cloning','building','running')",
+        (now_iso, job_id),
+    )
+    if update_cursor.rowcount == 0:
+        raise HTTPException(status_code=409, detail="Job status changed during cancel")
+
+    await db.commit()
+
+    return {"job_id": job_id, "status": "failed", "message": "Job cancelled"}
