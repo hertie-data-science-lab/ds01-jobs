@@ -67,7 +67,7 @@ Requirements for v0.1.0 milestone. Each maps to roadmap phases.
 ### Status & Results
 
 - [x] **STAT-01**: User can poll job status via GET /api/v1/jobs/{id} (status, phase timestamps, error message)
-- [ ] **STAT-02**: User can retrieve stdout/stderr logs via GET /api/v1/jobs/{id}/logs
+- [x] **STAT-02**: User can retrieve stdout/stderr logs via GET /api/v1/jobs/{id}/logs
 - [x] **STAT-03**: User can download result files via GET /api/v1/jobs/{id}/results
 - [x] **STAT-04**: User can check remaining quota via GET /api/v1/users/me/quota
 
@@ -168,7 +168,7 @@ Deferred to future milestones. Not in current roadmap.
 | RUN-10 | Phase 4 | Complete |
 | RUN-11 | Phase 4 | Complete |
 | STAT-01 | Phase 5 | Complete |
-| STAT-02 | Phase 5 | Pending |
+| STAT-02 | Phase 5 | Complete |
 | STAT-03 | Phase 5 | Complete |
 | STAT-04 | Phase 5 | Complete |
 | NET-01 | Phase 1 | Complete |
