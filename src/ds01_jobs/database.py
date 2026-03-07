@@ -39,11 +39,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL DEFAULT 'queued',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    failed_phase TEXT,
+    exit_code INTEGER,
+    error_summary TEXT,
+    started_at TEXT,
+    completed_at TEXT,
     FOREIGN KEY (username) REFERENCES api_keys(username)
 );
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_username_status ON jobs(username, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_username_created ON jobs(username, created_at);
 """
+# Note: Schema uses CREATE TABLE IF NOT EXISTS. For pre-v1 development,
+# drop and recreate the DB if columns are missing after schema changes.
 
 
 @lru_cache(maxsize=1)

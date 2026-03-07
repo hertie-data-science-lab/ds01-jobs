@@ -45,3 +45,12 @@ class Settings(BaseSettings):
     # URL validation
     allowed_github_orgs: list[str] = []
     preflight_timeout_seconds: float = 5.0
+
+    # Runner
+    runner_poll_interval: float = 5.0
+    build_timeout_seconds: float = 900.0  # 15 minutes
+    clone_timeout_seconds: float = 120.0  # 2 minutes
+    default_job_timeout_seconds: float = 14400.0  # 4 hours
+    max_job_timeout_seconds: float = 86400.0  # 24 hours hard ceiling
+    workspace_root: Path = Path("/var/lib/ds01-jobs/workspaces")
+    docker_bin: Path = Path("/usr/local/bin/docker")
