@@ -68,7 +68,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 03-01-PLAN.md — Contracts, Dockerfile scanner, URL validation (models, config, schema, scanner.py, url_validation.py)
-- [ ] 03-02-PLAN.md — Per-user rate limiter, jobs router, app wiring (rate_limit.py, jobs.py, endpoint tests)
+- [x] 03-02-PLAN.md — Per-user rate limiter, jobs router, app wiring (rate_limit.py, jobs.py, endpoint tests)
 
 ### Phase 4: Job Runner
 **Goal**: Queued jobs execute reliably through the full Docker lifecycle, with the runner surviving restarts and shutdowns without leaving orphaned containers or stuck job states
@@ -83,9 +83,9 @@ Plans:
   6. All docker commands are invoked via `/usr/local/bin/docker` (the DS01 wrapper), never the real Docker binary
 **Plans**: 3 plans
 Plans:
-- [ ] 04-01-PLAN.md — Database schema extensions, runner config, GPU availability module
-- [ ] 04-02-PLAN.md — Job executor (clone/build/run subprocess pipeline, timeouts, cleanup)
-- [ ] 04-03-PLAN.md — Runner poll loop, signal handling, startup recovery, cancel endpoint
+- [x] 04-01-PLAN.md — Database schema extensions, runner config, GPU availability module
+- [x] 04-02-PLAN.md — Job executor (clone/build/run subprocess pipeline, timeouts, cleanup)
+- [x] 04-03-PLAN.md — Runner poll loop, signal handling, startup recovery, cancel endpoint
 
 ### Phase 5: Status and Results
 **Goal**: Users can observe job progress, retrieve logs for debugging, download result files, and check their remaining quota
@@ -98,13 +98,27 @@ Plans:
   4. `GET /api/v1/users/me/quota` returns the user's current concurrent job count, daily count, and configured limits
 **Plans**: 3 plans
 Plans:
-- [ ] 05-01-PLAN.md — Schema extension, config, response models, helpers, executor phase timestamps
-- [ ] 05-02-PLAN.md — Status, logs, listing, and quota endpoints
-- [ ] 05-03-PLAN.md — Results download endpoint with tar.gz streaming
+- [x] 05-01-PLAN.md — Schema extension, config, response models, helpers, executor phase timestamps
+- [x] 05-02-PLAN.md — Status, logs, listing, and quota endpoints
+- [x] 05-03-PLAN.md — Results download endpoint with tar.gz streaming
+
+### Phase 05.1: API integration tests (INSERTED)
+
+**Goal**: The server-side API surface is verified end-to-end via Tier 1 integration tests that exercise real wiring between auth, submission, status, logs, cancel, quota, and results — catching integration bugs before clients are built on top
+**Depends on**: Phase 5
+**Requirements**: INT-LIFECYCLE, INT-AUTH, INT-RATE, INT-CI
+**Success Criteria** (what must be TRUE):
+  1. Integration tests exercise the full API round-trip: create key → submit job → check status → list jobs → check quota → cancel, using the real FastAPI app and SQLite
+  2. Auth integration: signed requests succeed, unsigned/tampered/expired requests fail, nonce replay is rejected
+  3. Rate limiting integration: submitting past configured limits returns 429 with correct headers
+  4. All integration tests run in Tier 1 CI (no Docker/GPU required) and pass
+**Plans**: 1 plan
+Plans:
+- [x] 05.1-01-PLAN.md — Shared integration fixtures and API round-trip test suite
 
 ### Phase 6: Clients
 **Goal**: Researchers can submit jobs, check status, and retrieve results without constructing HMAC-signed requests by hand — via either a CLI tool or a GitHub Action (tested against local dev server)
-**Depends on**: Phase 5
+**Depends on**: Phase 5.1
 **Requirements**: CLI-01, CLI-02, GHA-01, GHA-02
 **Success Criteria** (what must be TRUE):
   1. `ds01-submit run https://github.com/user/repo --gpus 1` submits a job and prints the job ID and status URL
@@ -112,6 +126,7 @@ Plans:
   3. `ds01-submit results <job-id> -o ./output/` downloads result files to the local directory
   4. The CLI reads the API key from `~/.config/ds01/credentials` or `DS01_API_KEY` env var and handles all HMAC signing transparently
   5. The GitHub Action (`uses: hertie-data-science-lab/ds01-jobs/action@v0.1.0`) submits a job from a CI workflow and commits results back to the triggering repo
+  6. Integration tests for CLI commands (submit, status, results) against a local dev server are added to the Tier 1 integration test suite
 **Plans**: TBD
 
 ### Phase 7: Deployment
@@ -124,19 +139,21 @@ Plans:
   3. `ds01-cloudflared.service` lists `ds01-api.service` as a dependency and only starts after the API is healthy
   4. Running `deploy.sh` while jobs are active prints a warning and requires confirmation before proceeding
   5. The API is reachable from an off-campus network via the Cloudflare Tunnel URL without VPN
+  6. Tier 2 integration tests exercise full job lifecycle on the self-hosted GPU runner (submit → clone → build → run → succeed → download results) and are added to the existing integration test suite
 **Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 5.1 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-05 |
 | 2. Authentication | 3/3 | Complete | 2026-03-06 |
-| 3. Job Submission | 1/2 | In Progress | - |
-| 4. Job Runner | 0/3 | Not started | - |
-| 5. Status and Results | 0/3 | Not started | - |
+| 3. Job Submission | 2/2 | Complete | 2026-03-06 |
+| 4. Job Runner | 3/3 | Complete | 2026-03-07 |
+| 5. Status and Results | 3/3 | Complete | 2026-03-07 |
+| 5.1 API Integration Tests | 1/1 | Complete | 2026-03-08 |
 | 6. Clients | 0/TBD | Not started | - |
 | 7. Deployment | 0/TBD | Not started | - |

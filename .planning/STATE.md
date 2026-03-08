@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.1
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-07T17:58:22.018Z"
+status: executing
+last_updated: "2026-03-08T15:55:30.000Z"
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 12
+  total_phases: 6
+  completed_phases: 5
+  total_plans: 14
+  completed_plans: 13
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Researchers can submit GPU jobs remotely and get results back without direct server access.
-**Current focus:** Phase 5 — Status and Results
+**Current focus:** Phase 05.1 — API Integration Tests
 
 ## Current Position
 
-Phase: 5 of 7 (Status and Results)
-Plan: 3 of 3 in current phase - COMPLETE
-Status: Executing Phase 5
-Last activity: 2026-03-07 — Completed 05-03 (results download)
+Phase: 5.1 of 7 (API Integration Tests)
+Plan: 1 of 1 in current phase - COMPLETE
+Status: Phase 05.1 complete
+Last activity: 2026-03-08 — Completed 05.1-01 (API integration tests)
 
-Progress: [████████░░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: 3min
-- Total execution time: 35min
+- Total execution time: 39min
 
 **By Phase:**
 
@@ -45,13 +45,11 @@ Progress: [████████░░] 85%
 | 03-job-submission | 1 | 4min | 4min |
 | 04-job-runner | 3 | 9min | 3min |
 | 05-status-and-results | 2 | 6min | 3min |
+| 05.1-api-integration-tests | 1 | 4min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: 04-01 (1min), 04-02 (5min), 04-03 (3min), 05-01 (2min), 05-03 (4min)
+- Last 5 plans: 04-02 (5min), 04-03 (3min), 05-01 (2min), 05-03 (4min), 05.1-01 (4min)
 - Trend: stable
-
-*Updated after each plan completion*
-| Phase 05 P02 | 6 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +88,11 @@ Recent decisions affecting current work:
 - [Phase 05-status-and-results]: Phase timestamps stored as JSON dict with started_at/ended_at per phase
 - [Phase 05-status-and-results]: Used unittest.mock.patch for _get_settings override in tests since it is called directly (not via Depends)
 - [Phase 05]: Used unittest.mock.patch for _get_settings in log tests since lru_cache prevents FastAPI dependency_overrides
+- [Phase 05.1]: Used pytest_asyncio.fixture for async fixtures - required for pytest-asyncio strict mode with pytest 9.x
+
+### Roadmap Evolution
+
+- Phase 05.1 inserted after Phase 05: API integration tests (URGENT) — Tier 1 round-trip tests for complete server-side API surface before building clients
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07
-Stopped at: Completed 05-03-PLAN.md (results download)
+Last session: 2026-03-08
+Stopped at: Completed 05.1-01-PLAN.md (API integration tests)
 Resume file: None
