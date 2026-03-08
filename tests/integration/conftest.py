@@ -17,6 +17,7 @@ from unittest.mock import patch
 import aiosqlite
 import bcrypt
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from ds01_jobs.app import create_app
@@ -138,7 +139,7 @@ async def insert_job(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_path(tmp_path: Path) -> Path:
     """Create a temporary SQLite database with the full schema."""
     path = tmp_path / "test.db"
@@ -146,7 +147,7 @@ async def db_path(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def auth_key(db_path: Path) -> tuple[str, str, str]:
     """Generate and seed a test API key. Returns (raw_key, key_id, key_hash)."""
     raw_key, key_id, key_hash = create_test_key()
@@ -154,8 +155,8 @@ async def auth_key(db_path: Path) -> tuple[str, str, str]:
     return raw_key, key_id, key_hash
 
 
-@pytest.fixture
-def app(db_path: Path, tmp_path: Path):
+@pytest_asyncio.fixture
+async def app(db_path: Path, tmp_path: Path):
     """Create a real FastAPI app wired to the test database."""
     application = create_app()
 
@@ -190,7 +191,7 @@ def app(db_path: Path, tmp_path: Path):
     application.dependency_overrides.clear()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(app):
     """Async HTTP client backed by the test app."""
     transport = ASGITransport(app=app)
