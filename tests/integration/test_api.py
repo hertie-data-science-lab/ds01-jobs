@@ -85,7 +85,6 @@ async def test_full_job_lifecycle(mock_ssrf, mock_verify, client, auth_key, db_p
     assert resp.json()["concurrent"]["used"] >= 1
 
     # 5. Cancel
-    cancel_body = b""
     headers = build_signed_headers(raw_key, "POST", f"/api/v1/jobs/{job_id}/cancel")
     resp = await client.post(f"/api/v1/jobs/{job_id}/cancel", headers=headers)
     assert resp.status_code == 200
