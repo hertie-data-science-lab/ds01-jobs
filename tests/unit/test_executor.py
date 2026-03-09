@@ -1,6 +1,7 @@
 """Unit tests for the job executor module."""
 
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -438,3 +439,35 @@ async def test_cancel_check_stops_execution(
     docker_cmds = [c[0] for c in calls if c[0] and c[0][0] == str(executor_settings.docker_bin)]
     build_calls = [c for c in docker_cmds if len(c) > 1 and c[1] == "build"]
     assert len(build_calls) == 0, "Build should not have been called after cancel"
+
+
+@pytest.mark.asyncio
+@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
+async def test_phase_timestamps_recorded(
+    mock_exec: AsyncMock,
+    executor_settings: Settings,
+    db_path: Path,
+) -> None:
+    """Successful execution records phase timestamps for queued, cloning, building, running."""
+    mock_exec.return_value = _mock_process(0)
+    executor = JobExecutor(executor_settings)
+
+    await executor.execute(
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
+    )
+
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute("SELECT phase_timestamps FROM jobs WHERE id=?", (JOB_ID,))
+        row = await cursor.fetchone()
+
+    assert row is not None
+    timestamps = json.loads(row[0])
+
+    # All four phases should be present
+    for phase in ("queued", "cloning", "building", "running"):
+        assert phase in timestamps, f"Missing phase: {phase}"
+        assert "started_at" in timestamps[phase], f"{phase} missing started_at"
+
+    # Completed phases should have ended_at set
+    for phase in ("queued", "cloning", "building", "running"):
+        assert timestamps[phase]["ended_at"] is not None, f"{phase} missing ended_at"

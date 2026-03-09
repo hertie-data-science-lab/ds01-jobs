@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     default_concurrent_limit: int = 3
     default_daily_limit: int = 10
 
+    # Result size limit
+    default_max_result_size_mb: int = 1024
+
     # URL validation
     allowed_github_orgs: list[str] = []
     preflight_timeout_seconds: float = 5.0
