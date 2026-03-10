@@ -208,7 +208,8 @@ def test_key_create_setup_instructions(tmp_db, mock_github_member):
     result = runner.invoke(app, ["key-create", "researcher1"])
     assert result.exit_code == 0
     assert "Setup instructions" in result.output
-    assert "mkdir -p ~/.config/ds01" in result.output
+    assert "pip install ds01-jobs" in result.output
+    assert "ds01-submit configure" in result.output
     assert "DS01_API_KEY=" in result.output
 
 

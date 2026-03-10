@@ -63,8 +63,8 @@ def _print_key_result(
         typer.echo("")
         typer.echo("Setup instructions (send to researcher):")
         typer.echo("\u2500" * 41)
-        typer.echo("mkdir -p ~/.config/ds01")
-        typer.echo(f'echo "DS01_API_KEY={raw_key}" > ~/.config/ds01/credentials')
+        typer.echo("pip install ds01-jobs")
+        typer.echo(f"DS01_API_KEY={raw_key} ds01-submit configure")
         typer.echo("\u2500" * 41)
 
 
