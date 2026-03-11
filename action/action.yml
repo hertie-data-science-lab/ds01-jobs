@@ -1,0 +1,85 @@
+name: 'DS01 Submit Job'
+description: 'Submit a GPU job to DS01 cluster and retrieve results'
+
+inputs:
+  api-key:
+    description: 'DS01 API key for authentication'
+    required: true
+  repo-url:
+    description: 'GitHub repository URL'
+    required: false
+    default: '${{ github.server_url }}/${{ github.repository }}'
+  branch:
+    description: 'Branch to build'
+    required: false
+    default: '${{ github.ref_name }}'
+  gpus:
+    description: 'Number of GPUs'
+    required: false
+    default: '1'
+  timeout:
+    description: 'Job timeout in seconds'
+    required: false
+    default: '14400'
+  commit-results:
+    description: 'Whether to commit results back or upload as artifact'
+    required: false
+    default: 'true'
+  results-path:
+    description: 'Local path to download results to'
+    required: false
+    default: './results'
+
+outputs:
+  job-id:
+    description: 'Submitted job ID'
+    value: ${{ steps.run-job.outputs.job-id }}
+  status:
+    description: 'Final job status'
+    value: ${{ steps.run-job.outputs.status }}
+  results-path:
+    description: 'Path where results were downloaded'
+    value: ${{ steps.run-job.outputs.results-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install ds01-jobs
+      shell: bash
+      run: pip install "${{ github.action_path }}/.."
+
+    - name: Submit, wait, and download
+      id: run-job
+      shell: bash
+      env:
+        DS01_API_KEY: ${{ inputs.api-key }}
+        DS01_API_URL: ${{ inputs.repo-url && '' }}
+      run: |
+        python "${{ github.action_path }}/entrypoint.py" \
+          --repo-url "${{ inputs.repo-url }}" \
+          --branch "${{ inputs.branch }}" \
+          --gpus "${{ inputs.gpus }}" \
+          --timeout "${{ inputs.timeout }}" \
+          --results-path "${{ inputs.results-path }}"
+
+    - name: Commit results
+      if: inputs.commit-results == 'true' && steps.run-job.outputs.status == 'succeeded'
+      shell: bash
+      run: |
+        git config user.name "ds01-bot"
+        git config user.email "ds01-bot@users.noreply.github.com"
+        git add "${{ inputs.results-path }}"
+        git commit -m "feat: add ds01 job results (${{ steps.run-job.outputs.job-id }})"
+        git push
+
+    - name: Upload results as artifact
+      if: inputs.commit-results == 'false' && steps.run-job.outputs.status == 'succeeded'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ds01-results-${{ steps.run-job.outputs.job-id }}
+        path: ${{ inputs.results-path }}
