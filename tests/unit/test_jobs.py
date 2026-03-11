@@ -53,6 +53,7 @@ async def _seed_key(
     key_id: str,
     key_hash: str,
     username: str = "testuser",
+    unix_username: str = "testuser_unix",
     expires_at: str | None = None,
 ) -> None:
     """Insert a test API key into the database."""
@@ -61,9 +62,18 @@ async def _seed_key(
 
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "INSERT INTO api_keys (username, key_id, key_hash, created_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (username, key_id, key_hash, datetime.now(UTC).isoformat(), expires_at, 0),
+            "INSERT INTO api_keys "
+            "(username, unix_username, key_id, key_hash, created_at, expires_at, revoked) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                username,
+                unix_username,
+                key_id,
+                key_hash,
+                datetime.now(UTC).isoformat(),
+                expires_at,
+                0,
+            ),
         )
         await db.commit()
 
@@ -78,11 +88,12 @@ async def _insert_job(
     now = created_at or datetime.now(UTC).isoformat()
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, job_name, "
-            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, job_name, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(uuid.uuid4()),
                 username,
+                "testuser_unix",
                 "https://github.com/test/repo",
                 "main",
                 1,
@@ -128,10 +139,11 @@ def _build_headers(raw_key: str, body_dict: dict) -> dict[str, str]:  # type: ig
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_success(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """Valid auth + valid repo_url returns 202 with job record in DB."""
     db_path = tmp_path / "test.db"
@@ -190,10 +202,11 @@ async def test_submit_job_invalid_url(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_with_dockerfile_scan_error(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """Dockerfile with blocked base image returns 422 with dockerfile_scan_error."""
     db_path = tmp_path / "test.db"
@@ -221,10 +234,11 @@ async def test_submit_job_with_dockerfile_scan_error(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_with_clean_dockerfile(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """Valid Dockerfile returns 202 (scan passes)."""
     db_path = tmp_path / "test.db"
@@ -248,10 +262,11 @@ async def test_submit_job_with_clean_dockerfile(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_concurrent_limit_exceeded(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """User at concurrent limit gets 429 with limit_type='concurrent'."""
     db_path = tmp_path / "test.db"
@@ -278,10 +293,11 @@ async def test_submit_job_concurrent_limit_exceeded(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_daily_limit_exceeded(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """User at daily limit gets 429 with limit_type='daily'."""
     db_path = tmp_path / "test.db"
@@ -308,10 +324,11 @@ async def test_submit_job_daily_limit_exceeded(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_rate_limit_headers_on_success(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """Successful 202 includes X-RateLimit-* headers."""
     db_path = tmp_path / "test.db"
@@ -337,10 +354,11 @@ async def test_submit_job_rate_limit_headers_on_success(
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_submit_job_auto_generated_job_name(
-    mock_ssrf: AsyncMock, mock_verify: AsyncMock, tmp_path: Path
+    mock_ssrf: AsyncMock, mock_verify: AsyncMock, mock_group: AsyncMock, tmp_path: Path
 ) -> None:
     """Omitting job_name auto-generates from repo name + short ID."""
     db_path = tmp_path / "test.db"
@@ -390,8 +408,11 @@ async def test_submit_job_unauthenticated(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
-async def test_submit_job_repo_not_found(mock_ssrf: AsyncMock, tmp_path: Path) -> None:
+async def test_submit_job_repo_not_found(
+    mock_ssrf: AsyncMock, mock_group: AsyncMock, tmp_path: Path
+) -> None:
     """verify_repo_accessible raising ValueError returns 422 with repo_not_found."""
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)

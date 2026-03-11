@@ -96,6 +96,7 @@ async def submit_job(
     """Submit a new GPU job for execution."""
     settings = _get_settings()
     username = user["username"]
+    unix_username = user["unix_username"]
 
     # 1. URL format validation (cheap, no I/O)
     try:
@@ -120,7 +121,7 @@ async def submit_job(
 
     # 2. Rate limit check (raises 429 on failure)
     concurrent_count, concurrent_limit, daily_count, daily_limit = await check_rate_limits(
-        db, username, settings
+        db, unix_username, username, settings
     )
 
     # 3. SSRF check
@@ -195,12 +196,13 @@ async def submit_job(
     now_iso = datetime.now(UTC).isoformat()
     await db.execute(
         "INSERT INTO jobs "
-        "(id, username, repo_url, branch, gpu_count, job_name, "
+        "(id, username, unix_username, repo_url, branch, gpu_count, job_name, "
         "timeout_seconds, dockerfile_content, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             job_id,
             username,
+            unix_username,
             body.repo_url,
             body.branch,
             body.gpu_count,
@@ -403,8 +405,9 @@ async def get_quota(
 ) -> QuotaResponse:
     """Return quota usage and limits for the authenticated user."""
     settings = _get_settings()
-    group, concurrent_limit, daily_limit, max_result_size_mb = get_user_quota_info(
-        user["username"], settings
+    unix_username = user["unix_username"]
+    group, concurrent_limit, daily_limit, max_result_size_mb = await get_user_quota_info(
+        unix_username, settings
     )
     concurrent_used, daily_used = await get_user_job_counts(db, user["username"])
 
@@ -448,7 +451,7 @@ async def download_results(
         )
 
     # Size enforcement
-    _, _, _, max_result_size_mb = get_user_quota_info(user["username"], settings)
+    _, _, _, max_result_size_mb = await get_user_quota_info(user["unix_username"], settings)
     total_size = _get_results_dir_size(results_dir)
     max_size_bytes = max_result_size_mb * 1024 * 1024
     if total_size > max_size_bytes:
