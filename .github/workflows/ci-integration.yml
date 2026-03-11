@@ -14,5 +14,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-groups
 
+      - name: Unit tests
+        run: uv run pytest -m 'not integration' --tb=short
+
       - name: Integration tests
         run: uv run pytest -m integration --tb=short || [ $? -eq 5 ]
