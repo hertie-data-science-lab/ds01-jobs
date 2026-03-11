@@ -24,6 +24,7 @@ async def test_init_db_creates_api_keys_table(tmp_path: Path):
     expected = {
         "id",
         "username",
+        "unix_username",
         "key_id",
         "key_hash",
         "created_at",

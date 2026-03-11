@@ -18,7 +18,7 @@ SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,
-    unix_username TEXT NOT NULL,
+    unix_username TEXT NOT NULL DEFAULT '',
     key_id TEXT NOT NULL UNIQUE,
     key_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
