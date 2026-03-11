@@ -55,6 +55,7 @@ async def _seed_key(
     key_id: str,
     key_hash: str,
     username: str = "testuser",
+    unix_username: str = "testuser_unix",
     expires_at: str | None = None,
     revoked: int = 0,
 ) -> None:
@@ -66,9 +67,18 @@ async def _seed_key(
 
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "INSERT INTO api_keys (username, key_id, key_hash, created_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (username, key_id, key_hash, datetime.now(UTC).isoformat(), expires_at, revoked),
+            "INSERT INTO api_keys "
+            "(username, unix_username, key_id, key_hash, created_at, expires_at, revoked) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                username,
+                unix_username,
+                key_id,
+                key_hash,
+                datetime.now(UTC).isoformat(),
+                expires_at,
+                revoked,
+            ),
         )
         await db.commit()
 
@@ -323,3 +333,26 @@ async def test_last_used_at_updated_after_successful_auth(tmp_path: Path):
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] is not None  # last_used_at should be set
+
+
+@pytest.mark.asyncio
+async def test_auth_returns_unix_username(tmp_path: Path):
+    """Successful auth returns both username and unix_username."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+
+    raw_key, key_id, key_hash = _create_test_key()
+    await _seed_key(db_path, key_id, key_hash, username="ghuser", unix_username="unixuser")
+
+    app = _make_app(db_path)
+    headers = _sign_request(raw_key, "GET", "/protected")
+    headers["Authorization"] = f"Bearer {raw_key}"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/protected", headers=headers)
+
+    assert resp.status_code == 200
+    user = resp.json()["user"]
+    assert user["username"] == "ghuser"
+    assert user["unix_username"] == "unixuser"

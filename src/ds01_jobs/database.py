@@ -18,6 +18,7 @@ SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,
+    unix_username TEXT NOT NULL,
     key_id TEXT NOT NULL UNIQUE,
     key_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -30,6 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_key_id ON api_keys(key_id);
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL,
+    unix_username TEXT NOT NULL DEFAULT '',
     repo_url TEXT NOT NULL,
     branch TEXT NOT NULL DEFAULT 'main',
     gpu_count INTEGER NOT NULL DEFAULT 1,
