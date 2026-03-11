@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # External config
     resource_limits_path: Path = Path("/opt/ds01-infra/config/runtime/resource-limits.yaml")
+    get_resource_limits_bin: Path = Path("/opt/ds01-infra/scripts/docker/get_resource_limits.py")
 
     # Authentication
     github_org: str = "hertie-data-science-lab"

@@ -161,4 +161,4 @@ async def get_current_user(
     if expires_at - now <= timedelta(days=KEY_EXPIRY_WARNING_DAYS):
         response.headers["X-DS01-Key-Expiry-Warning"] = expires_at.date().isoformat()
 
-    return {"username": username}
+    return {"username": username, "unix_username": row["unix_username"]}

@@ -88,9 +88,9 @@ def _seed_api_key(db_path: Path) -> tuple[str, str]:
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA_SQL)
     conn.execute(
-        "INSERT INTO api_keys (username, key_id, key_hash, created_at, expires_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (username, key_id, key_hash, now, expires),
+        "INSERT INTO api_keys (username, unix_username, key_id, key_hash, created_at, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (username, f"{username}_unix", key_id, key_hash, now, expires),
     )
     conn.commit()
     conn.close()
