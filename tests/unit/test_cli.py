@@ -61,6 +61,18 @@ def mock_github_non_member(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("ds01_jobs.cli.check_org_membership", lambda u, o: False)
 
 
+@pytest.fixture()
+def mock_unix_user_valid(monkeypatch: pytest.MonkeyPatch):
+    """Mock _validate_unix_user to return True."""
+    monkeypatch.setattr("ds01_jobs.cli._validate_unix_user", lambda u: True)
+
+
+@pytest.fixture()
+def mock_unix_user_invalid(monkeypatch: pytest.MonkeyPatch):
+    """Mock _validate_unix_user to return False."""
+    monkeypatch.setattr("ds01_jobs.cli._validate_unix_user", lambda u: False)
+
+
 # --- Token resolution tests ---
 
 
@@ -125,9 +137,9 @@ def test_parse_duration_invalid():
 # --- key-create tests ---
 
 
-def test_key_create_success(tmp_db, mock_github_member):
+def test_key_create_success(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-create produces output with ds01_ key, username, and expiry."""
-    result = runner.invoke(app, ["key-create", "researcher1"])
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     assert result.exit_code == 0
     assert "ds01_" in result.output
     assert "researcher1" in result.output
@@ -135,48 +147,67 @@ def test_key_create_success(tmp_db, mock_github_member):
     assert "API Key created successfully" in result.output
 
 
-def test_key_create_json(tmp_db, mock_github_member):
-    """key-create --json produces valid JSON with key field."""
-    result = runner.invoke(app, ["key-create", "researcher1", "--json"])
+def test_key_create_shows_both_usernames(tmp_db, mock_github_member, mock_unix_user_valid):
+    """key-create output shows both GitHub and Unix usernames."""
+    result = runner.invoke(app, ["key-create", "ghuser", "unixuser"])
+    assert result.exit_code == 0
+    assert "GitHub:  ghuser" in result.output
+    assert "Unix:    unixuser" in result.output
+
+
+def test_key_create_json(tmp_db, mock_github_member, mock_unix_user_valid):
+    """key-create --json produces valid JSON with key and unix_username fields."""
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["key"].startswith("ds01_")
     assert data["username"] == "researcher1"
+    assert data["unix_username"] == "researcher1_unix"
     assert "key_id" in data
     assert "expires_at" in data
 
 
-def test_key_create_non_member(tmp_db, mock_github_non_member):
+def test_key_create_non_member(tmp_db, mock_github_non_member, mock_unix_user_valid):
     """key-create for non-member exits with error."""
-    result = runner.invoke(app, ["key-create", "outsider"])
+    result = runner.invoke(app, ["key-create", "outsider", "outsider_unix"])
     assert result.exit_code == 1
 
 
-def test_key_create_duplicate_active_key(tmp_db, mock_github_member):
+def test_key_create_invalid_unix_user(tmp_db, mock_unix_user_invalid):
+    """key-create with invalid Unix user exits with error code 1."""
+    result = runner.invoke(app, ["key-create", "researcher1", "nonexistent_unix"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_key_create_duplicate_active_key(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-create for user with existing active key exits with error."""
     # Create first key
-    result1 = runner.invoke(app, ["key-create", "researcher1"])
+    result1 = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     assert result1.exit_code == 0
 
     # Try to create second key
-    result2 = runner.invoke(app, ["key-create", "researcher1"])
+    result2 = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     assert result2.exit_code == 1
 
 
-def test_key_create_after_revoke(tmp_db, mock_github_member):
+def test_key_create_after_revoke(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-create succeeds after the previous key is revoked."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     runner.invoke(app, ["key-revoke", "researcher1", "--yes"])
 
-    result = runner.invoke(app, ["key-create", "researcher1", "--json"])
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["username"] == "researcher1"
 
 
-def test_key_create_custom_expires(tmp_db, mock_github_member):
+def test_key_create_custom_expires(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-create with --expires 30d sets expiry ~30 days from now."""
-    result = runner.invoke(app, ["key-create", "researcher1", "--expires", "30d", "--json"])
+    result = runner.invoke(
+        app,
+        ["key-create", "researcher1", "researcher1_unix", "--expires", "30d", "--json"],
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
 
@@ -184,9 +215,9 @@ def test_key_create_custom_expires(tmp_db, mock_github_member):
     assert data["expires_at"] == expected_date
 
 
-def test_key_create_stores_bcrypt_hash(tmp_db, mock_github_member):
+def test_key_create_stores_bcrypt_hash(tmp_db, mock_github_member, mock_unix_user_valid):
     """Created key hash is valid bcrypt - bcrypt.checkpw returns True."""
-    result = runner.invoke(app, ["key-create", "researcher1", "--json"])
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     raw_key = data["key"]
@@ -203,9 +234,24 @@ def test_key_create_stores_bcrypt_hash(tmp_db, mock_github_member):
     assert bcrypt.checkpw(raw_key.encode(), stored_hash.encode())
 
 
-def test_key_create_setup_instructions(tmp_db, mock_github_member):
+def test_key_create_stores_unix_username(tmp_db, mock_github_member, mock_unix_user_valid):
+    """key-create stores unix_username in the database."""
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
+    assert result.exit_code == 0
+
+    conn = sqlite3.connect(tmp_db)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT unix_username FROM api_keys WHERE username = 'researcher1'")
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row["unix_username"] == "researcher1_unix"
+
+
+def test_key_create_setup_instructions(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-create output includes setup instructions block."""
-    result = runner.invoke(app, ["key-create", "researcher1"])
+    result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     assert result.exit_code == 0
     assert "Setup instructions" in result.output
     assert "pip install ds01-jobs" in result.output
@@ -223,12 +269,13 @@ def test_key_list_empty(tmp_db):
     assert "No API keys found" in result.output
 
 
-def test_key_list_with_keys(tmp_db, mock_github_member):
-    """key-list shows correct columns."""
-    runner.invoke(app, ["key-create", "researcher1"])
+def test_key_list_with_keys(tmp_db, mock_github_member, mock_unix_user_valid):
+    """key-list shows correct columns including UNIX USER."""
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-list"])
     assert result.exit_code == 0
     assert "USERNAME" in result.output
+    assert "UNIX USER" in result.output
     assert "STATUS" in result.output
     assert "CREATED" in result.output
     assert "EXPIRES" in result.output
@@ -237,22 +284,23 @@ def test_key_list_with_keys(tmp_db, mock_github_member):
     assert "active" in result.output
 
 
-def test_key_list_json(tmp_db, mock_github_member):
-    """key-list --json produces valid JSON array."""
-    runner.invoke(app, ["key-create", "researcher1"])
+def test_key_list_json(tmp_db, mock_github_member, mock_unix_user_valid):
+    """key-list --json produces valid JSON array with unix_username."""
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-list", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["username"] == "researcher1"
+    assert data[0]["unix_username"] == "researcher1_unix"
     assert data[0]["status"] == "active"
 
 
-def test_key_list_shows_status(tmp_db, mock_github_member):
+def test_key_list_shows_status(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-list shows correct status for active, revoked, expired keys."""
     # Create and revoke a key to test revoked status
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     runner.invoke(app, ["key-revoke", "researcher1", "--yes"])
 
     result = runner.invoke(app, ["key-list", "--json"])
@@ -260,10 +308,10 @@ def test_key_list_shows_status(tmp_db, mock_github_member):
     assert data[0]["status"] == "revoked"
 
 
-def test_key_list_shows_expired_status(tmp_db, mock_github_member):
+def test_key_list_shows_expired_status(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-list shows 'expired' for keys past their expiry date."""
     # Create key then manually backdate its expiry
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     conn = sqlite3.connect(tmp_db)
     past_date = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     conn.execute("UPDATE api_keys SET expires_at = ? WHERE username = 'researcher1'", (past_date,))
@@ -278,9 +326,9 @@ def test_key_list_shows_expired_status(tmp_db, mock_github_member):
 # --- key-revoke tests ---
 
 
-def test_key_revoke_with_yes(tmp_db, mock_github_member):
+def test_key_revoke_with_yes(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-revoke --yes revokes without prompt."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-revoke", "researcher1", "--yes"])
     assert result.exit_code == 0
     assert "Key revoked" in result.output
@@ -292,18 +340,18 @@ def test_key_revoke_nonexistent_user(tmp_db):
     assert result.exit_code == 1
 
 
-def test_revoked_key_shows_in_list(tmp_db, mock_github_member):
+def test_revoked_key_shows_in_list(tmp_db, mock_github_member, mock_unix_user_valid):
     """Revoked key shows as 'revoked' in key-list."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     runner.invoke(app, ["key-revoke", "researcher1", "--yes"])
     result = runner.invoke(app, ["key-list", "--json"])
     data = json.loads(result.output)
     assert data[0]["status"] == "revoked"
 
 
-def test_key_revoke_json(tmp_db, mock_github_member):
+def test_key_revoke_json(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-revoke --json produces valid JSON output."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-revoke", "researcher1", "--yes", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -314,9 +362,9 @@ def test_key_revoke_json(tmp_db, mock_github_member):
 # --- key-rotate tests ---
 
 
-def test_key_rotate_with_yes(tmp_db, mock_github_member):
+def test_key_rotate_with_yes(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-rotate --yes produces a new key."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-rotate", "researcher1", "--yes"])
     assert result.exit_code == 0
     assert "ds01_" in result.output
@@ -329,9 +377,9 @@ def test_key_rotate_no_active_key(tmp_db):
     assert result.exit_code == 1
 
 
-def test_key_rotate_produces_different_key(tmp_db, mock_github_member):
+def test_key_rotate_produces_different_key(tmp_db, mock_github_member, mock_unix_user_valid):
     """Rotated key is different from the original."""
-    result1 = runner.invoke(app, ["key-create", "researcher1", "--json"])
+    result1 = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
     original_key = json.loads(result1.output)["key"]
 
     result2 = runner.invoke(app, ["key-rotate", "researcher1", "--yes", "--json"])
@@ -341,9 +389,9 @@ def test_key_rotate_produces_different_key(tmp_db, mock_github_member):
     assert new_key.startswith("ds01_")
 
 
-def test_key_rotate_json(tmp_db, mock_github_member):
+def test_key_rotate_json(tmp_db, mock_github_member, mock_unix_user_valid):
     """key-rotate --json produces valid JSON with new key."""
-    runner.invoke(app, ["key-create", "researcher1"])
+    runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     result = runner.invoke(app, ["key-rotate", "researcher1", "--yes", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -351,9 +399,9 @@ def test_key_rotate_json(tmp_db, mock_github_member):
     assert data["username"] == "researcher1"
 
 
-def test_key_rotate_old_hash_changes(tmp_db, mock_github_member):
+def test_key_rotate_old_hash_changes(tmp_db, mock_github_member, mock_unix_user_valid):
     """After rotation, the stored hash corresponds to the new key."""
-    result1 = runner.invoke(app, ["key-create", "researcher1", "--json"])
+    result1 = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix", "--json"])
     original_key = json.loads(result1.output)["key"]
 
     result2 = runner.invoke(app, ["key-rotate", "researcher1", "--yes", "--json"])

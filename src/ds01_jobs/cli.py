@@ -34,6 +34,7 @@ def _hash_key(raw_key: str) -> str:
 
 def _print_key_result(
     username: str,
+    unix_username: str | None,
     raw_key: str,
     key_id: str,
     expires_date: str,
@@ -42,23 +43,23 @@ def _print_key_result(
 ) -> None:
     """Display a key creation/rotation result."""
     if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "username": username,
-                    "key": raw_key,
-                    "key_id": key_id,
-                    "expires_at": expires_date,
-                },
-                indent=2,
-            )
-        )
+        data: dict[str, str] = {
+            "username": username,
+            "key": raw_key,
+            "key_id": key_id,
+            "expires_at": expires_date,
+        }
+        if unix_username is not None:
+            data["unix_username"] = unix_username
+        typer.echo(json.dumps(data, indent=2))
     else:
         typer.echo(f"API Key {action} successfully")
         typer.echo("")
         typer.echo(f"Key:     {raw_key}")
         typer.echo("")
-        typer.echo(f"User:    {username}")
+        typer.echo(f"GitHub:  {username}")
+        if unix_username is not None:
+            typer.echo(f"Unix:    {unix_username}")
         typer.echo(f"Expires: {expires_date}")
         typer.echo("")
         typer.echo("Setup instructions (send to researcher):")
@@ -177,9 +178,22 @@ def _get_active_key(conn: sqlite3.Connection, username: str) -> sqlite3.Row | No
     return cursor.fetchone()  # type: ignore[no-any-return]
 
 
+def _validate_unix_user(unix_username: str) -> bool:
+    """Check that the Unix user exists on this server."""
+    result = subprocess.run(
+        ["id", unix_username],
+        capture_output=True,
+        timeout=5,
+    )
+    return result.returncode == 0
+
+
 @app.command("key-create")
 def key_create(
-    username: Annotated[str, typer.Argument(help="GitHub username (must be a member of the org)")],
+    github_username: Annotated[
+        str, typer.Argument(help="GitHub username (must be a member of the org)")
+    ],
+    unix_username: Annotated[str, typer.Argument(help="Unix username on the server")],
     expires: Annotated[
         str, typer.Option(help="Key validity duration (e.g. 90d, 30d, 180d)")
     ] = "90d",
@@ -187,14 +201,20 @@ def key_create(
 ) -> None:
     """Create a new API key for a researcher.
 
-    USERNAME must be the researcher's GitHub username. Org membership is
-    verified via the GitHub API (requires gh CLI or GITHUB_TOKEN).
+    GITHUB_USERNAME must be the researcher's GitHub username. Org membership
+    is verified via the GitHub API (requires gh CLI or GITHUB_TOKEN).
+    UNIX_USERNAME must exist on this server (validated via `id`).
     """
     settings = Settings(_env_file=None)
 
+    # Validate Unix user exists
+    if not _validate_unix_user(unix_username):
+        typer.echo(f"Error: Unix user {unix_username!r} does not exist on this server", err=True)
+        raise typer.Exit(code=1)
+
     # Check GitHub org membership
-    if not check_org_membership(username, settings.github_org):
-        typer.echo(f"Error: {username} is not a member of {settings.github_org}", err=True)
+    if not check_org_membership(github_username, settings.github_org):
+        typer.echo(f"Error: {github_username} is not a member of {settings.github_org}", err=True)
         raise typer.Exit(code=1)
 
     days = parse_duration(expires)
@@ -203,9 +223,9 @@ def key_create(
         _ensure_schema(conn)
 
         # Check for existing active key
-        if _get_active_key(conn, username):
+        if _get_active_key(conn, github_username):
             typer.echo(
-                f"Error: User {username} already has an active key. "
+                f"Error: User {github_username} already has an active key. "
                 "Use key-revoke or key-rotate first.",
                 err=True,
             )
@@ -219,14 +239,28 @@ def key_create(
         expires_dt = now + timedelta(days=days)
 
         conn.execute(
-            "INSERT INTO api_keys (username, key_id, key_hash, created_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (username, key_id, key_hash, now.isoformat(), expires_dt.isoformat()),
+            "INSERT INTO api_keys "
+            "(username, unix_username, key_id, key_hash, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                github_username,
+                unix_username,
+                key_id,
+                key_hash,
+                now.isoformat(),
+                expires_dt.isoformat(),
+            ),
         )
         conn.commit()
 
     _print_key_result(
-        username, raw_key, key_id, expires_dt.strftime("%Y-%m-%d"), "created", json_output
+        github_username,
+        unix_username,
+        raw_key,
+        key_id,
+        expires_dt.strftime("%Y-%m-%d"),
+        "created",
+        json_output,
     )
 
 
@@ -238,7 +272,7 @@ def key_list(
     with get_db_sync() as conn:
         _ensure_schema(conn)
         cursor = conn.execute(
-            "SELECT username, key_id, created_at, expires_at, revoked, last_used_at "
+            "SELECT username, unix_username, key_id, created_at, expires_at, revoked, last_used_at "
             "FROM api_keys ORDER BY created_at DESC"
         )
         rows = cursor.fetchall()
@@ -256,6 +290,7 @@ def key_list(
         keys.append(
             {
                 "username": row["username"],
+                "unix_username": row["unix_username"],
                 "status": status,
                 "created": row["created_at"][:10],
                 "expires": row["expires_at"][:10],
@@ -271,13 +306,14 @@ def key_list(
             return
 
         # Aligned columnar output
-        headers = ["USERNAME", "STATUS", "CREATED", "EXPIRES", "LAST USED"]
+        headers = ["USERNAME", "UNIX USER", "STATUS", "CREATED", "EXPIRES", "LAST USED"]
         col_widths = [
             max(len(headers[0]), *(len(k["username"]) for k in keys)),
-            max(len(headers[1]), *(len(k["status"]) for k in keys)),
-            max(len(headers[2]), *(len(k["created"]) for k in keys)),
-            max(len(headers[3]), *(len(k["expires"]) for k in keys)),
-            max(len(headers[4]), *(len(k["last_used"]) for k in keys)),
+            max(len(headers[1]), *(len(k["unix_username"]) for k in keys)),
+            max(len(headers[2]), *(len(k["status"]) for k in keys)),
+            max(len(headers[3]), *(len(k["created"]) for k in keys)),
+            max(len(headers[4]), *(len(k["expires"]) for k in keys)),
+            max(len(headers[5]), *(len(k["last_used"]) for k in keys)),
         ]
 
         header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths, strict=True))
@@ -286,6 +322,7 @@ def key_list(
         for key in keys:
             vals = [
                 key["username"],
+                key["unix_username"],
                 key["status"],
                 key["created"],
                 key["expires"],
@@ -370,5 +407,5 @@ def key_rotate(
         conn.commit()
 
     _print_key_result(
-        username, raw_key, key_id, expires_dt.strftime("%Y-%m-%d"), "rotated", json_output
+        username, None, raw_key, key_id, expires_dt.strftime("%Y-%m-%d"), "rotated", json_output
     )
