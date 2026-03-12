@@ -39,41 +39,6 @@ class JobExecutor:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._current_process: asyncio.subprocess.Process | None = None
-        self._unix_username: str = ""
-
-    def _sudo_docker(self, unix_username: str) -> list[str]:
-        """Return the sudo -u {unix_username} docker prefix."""
-        return ["sudo", "-u", unix_username, str(self.settings.docker_bin)]
-
-    async def _get_resource_limits(self, unix_username: str) -> list[str]:
-        """Get Docker resource limit args from get_resource_limits.py.
-
-        Returns a list of Docker CLI args (e.g. ['--memory=32g', '--shm-size=16g']).
-        Strips --cgroup-parent since the Docker wrapper injects it automatically.
-        Returns empty list on failure (job runs with wrapper defaults).
-        """
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "python3",
-                str(self.settings.get_resource_limits_bin),
-                unix_username,
-                "--docker-args",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            if proc.returncode != 0:
-                logger.warning(
-                    "get_resource_limits.py failed for %s: %s",
-                    unix_username,
-                    stderr.decode().strip(),
-                )
-                return []
-            args = stdout.decode().strip().split()
-            return [a for a in args if not a.startswith("--cgroup-parent=")]
-        except (TimeoutError, FileNotFoundError, OSError) as exc:
-            logger.warning("get_resource_limits.py error for %s: %s", unix_username, exc)
-            return []
 
     async def execute(
         self,
@@ -83,7 +48,6 @@ class JobExecutor:
         gpu_count: int,
         timeout_seconds: int | None,
         db_path: Path,
-        unix_username: str = "",
     ) -> None:
         """Run a job through the full execution pipeline.
 
@@ -94,9 +58,7 @@ class JobExecutor:
             gpu_count: Number of GPUs requested.
             timeout_seconds: Job run timeout (None = use default).
             db_path: Path to the SQLite database.
-            unix_username: Unix username for sudo -u Docker execution.
         """
-        self._unix_username = unix_username
         workspace = self.settings.workspace_root / job_id
         workspace.mkdir(parents=True, exist_ok=True)
 
@@ -116,10 +78,8 @@ class JobExecutor:
                 await db.commit()
 
             await self._clone(job_id, repo_url, branch, workspace, db_path)
-            await self._build(job_id, workspace, db_path, unix_username)
-            await self._run_container(
-                job_id, workspace, gpu_count, timeout_seconds, db_path, unix_username
-            )
+            await self._build(job_id, workspace, db_path)
+            await self._run_container(job_id, workspace, gpu_count, timeout_seconds, db_path)
             await self._collect_results(job_id, workspace)
 
             # Success
@@ -146,7 +106,6 @@ class JobExecutor:
             )
         finally:
             await self._cleanup(job_id)
-            self._unix_username = ""
 
     async def _update_status(
         self,
@@ -297,9 +256,7 @@ class JobExecutor:
             if exit_code != 0:
                 raise PhaseError("clone", exit_code, "Clone failed after retry")
 
-    async def _build(
-        self, job_id: str, workspace: Path, db_path: Path, unix_username: str = ""
-    ) -> None:
+    async def _build(self, job_id: str, workspace: Path, db_path: Path) -> None:
         """Build Docker image from the repo Dockerfile."""
         if await self._check_cancelled(db_path, job_id):
             raise PhaseError("build", -1, "Job cancelled before build")
@@ -307,12 +264,8 @@ class JobExecutor:
         await self._update_status(db_path, job_id, "building")
 
         image_tag = f"ds01-job-{job_id}"
-        if unix_username:
-            docker_prefix = self._sudo_docker(unix_username)
-        else:
-            docker_prefix = [str(self.settings.docker_bin)]
         cmd = [
-            *docker_prefix,
+            str(self.settings.docker_bin),
             "build",
             "-t",
             image_tag,
@@ -339,7 +292,6 @@ class JobExecutor:
         gpu_count: int,
         timeout_seconds: int | None,
         db_path: Path,
-        unix_username: str = "",
     ) -> None:
         """Run the Docker container with GPU access."""
         if await self._check_cancelled(db_path, job_id):
@@ -358,22 +310,11 @@ class JobExecutor:
         )
         resolved_timeout = min(resolved_timeout, self.settings.max_job_timeout_seconds)
 
-        # Get per-user resource limits
-        resource_args: list[str] = []
-        if unix_username:
-            resource_args = await self._get_resource_limits(unix_username)
-            docker_prefix = self._sudo_docker(unix_username)
-        else:
-            docker_prefix = [str(self.settings.docker_bin)]
-
         cmd = [
-            *docker_prefix,
+            str(self.settings.docker_bin),
             "run",
             "--name",
             container_name,
-            "--label",
-            "ds01.interface=api",
-            *resource_args,
             "--gpus",
             "all",
             image_tag,
@@ -394,14 +335,8 @@ class JobExecutor:
         results_dir = workspace / "results"
         results_dir.mkdir(exist_ok=True)
 
-        unix_username = self._unix_username
-        if unix_username:
-            docker_prefix = self._sudo_docker(unix_username)
-        else:
-            docker_prefix = [str(self.settings.docker_bin)]
-
         proc = await asyncio.create_subprocess_exec(
-            *docker_prefix,
+            str(self.settings.docker_bin),
             "cp",
             f"{container_name}:/output/.",
             str(results_dir),
@@ -415,16 +350,12 @@ class JobExecutor:
 
     async def _cleanup(self, job_id: str) -> None:
         """Remove container, image, and prune build cache."""
-        unix_username = self._unix_username
-        if unix_username:
-            docker_prefix = self._sudo_docker(unix_username)
-        else:
-            docker_prefix = [str(self.settings.docker_bin)]
+        docker = str(self.settings.docker_bin)
 
         # Remove container
         try:
             proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
+                docker,
                 "rm",
                 "-f",
                 f"ds01-job-{job_id}",
@@ -438,7 +369,7 @@ class JobExecutor:
         # Remove image
         try:
             proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
+                docker,
                 "image",
                 "rm",
                 "-f",
@@ -453,7 +384,7 @@ class JobExecutor:
         # Prune build cache
         try:
             proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
+                docker,
                 "builder",
                 "prune",
                 "--force",
@@ -480,14 +411,10 @@ class JobExecutor:
             await proc.wait()
 
         # Also force-remove any Docker container (survives process group kill)
-        unix_username = self._unix_username
-        if unix_username:
-            docker_prefix = self._sudo_docker(unix_username)
-        else:
-            docker_prefix = [str(self.settings.docker_bin)]
+        docker = str(self.settings.docker_bin)
         try:
             rm_proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
+                docker,
                 "rm",
                 "-f",
                 f"ds01-job-{job_id}",

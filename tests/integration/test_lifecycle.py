@@ -59,9 +59,7 @@ def api_key() -> str:
     test_username = f"test-lifecycle-{suffix}"
 
     # Create a key using --json for reliable parsing
-    # key-create requires both github_username and unix_username
-    unix_user = os.environ.get("USER", "datasciencelab")
-    result = _run(["ds01-job-admin", "key-create", test_username, unix_user, "--json"])
+    result = _run(["ds01-job-admin", "key-create", test_username, "--json"])
     assert result.returncode == 0, f"key-create failed: {result.stderr}"
 
     data = json.loads(result.stdout)

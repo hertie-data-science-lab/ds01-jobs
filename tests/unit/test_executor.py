@@ -20,7 +20,6 @@ from ds01_jobs.executor import JobExecutor
 JOB_ID = "test-job-001"
 REPO_URL = "https://github.com/example/repo.git"
 BRANCH = "main"
-UNIX_USER = "testuser_unix"
 
 
 @pytest.fixture
@@ -35,7 +34,6 @@ def executor_settings(tmp_path: Path) -> Settings:
         default_job_timeout_seconds=120.0,
         max_job_timeout_seconds=300.0,
         db_path=tmp_path / "test.db",
-        get_resource_limits_bin=Path("/opt/ds01-infra/scripts/docker/get_resource_limits.py"),
     )
 
 
@@ -49,12 +47,11 @@ def db_path(tmp_path: Path) -> Path:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA_SQL)
     conn.execute(
-        "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, "
-        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, "
+        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             JOB_ID,
             "testuser",
-            UNIX_USER,
             REPO_URL,
             BRANCH,
             1,
@@ -80,7 +77,7 @@ def _mock_process(returncode: int = 0) -> AsyncMock:
 
 
 # ---------------------------------------------------------------------------
-# Tests - existing behaviour (with unix_username)
+# Tests
 # ---------------------------------------------------------------------------
 
 
@@ -96,13 +93,7 @@ async def test_execute_success(
     executor = JobExecutor(executor_settings)
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -129,30 +120,13 @@ async def test_execute_clone_failure_retries(
 ) -> None:
     """Clone retries once on failure and succeeds on second attempt."""
     # First clone call fails, second succeeds, rest succeed
-    # Sequence: clone(fail), clone-retry(ok), build(ok), get_resource_limits(ok),
-    #           run(ok), collect(ok), cleanup x3(ok)
     fail_proc = _mock_process(128)
     ok_proc = _mock_process(0)
-    mock_exec.side_effect = [
-        fail_proc,
-        ok_proc,
-        ok_proc,
-        ok_proc,
-        ok_proc,
-        ok_proc,
-        ok_proc,
-        ok_proc,
-    ]
+    mock_exec.side_effect = [fail_proc, ok_proc, ok_proc, ok_proc, ok_proc, ok_proc, ok_proc]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -183,13 +157,7 @@ async def test_execute_clone_failure_after_retry(
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -216,13 +184,7 @@ async def test_execute_build_failure(
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -247,18 +209,12 @@ async def test_execute_run_failure(
     """Run failure sets status=failed with failed_phase=run."""
     ok_proc = _mock_process(0)
     fail_proc = _mock_process(1)
-    # clone ok, build ok, get_resource_limits ok, run fails, cleanup x3
-    mock_exec.side_effect = [ok_proc, ok_proc, ok_proc, fail_proc, ok_proc, ok_proc, ok_proc]
+    # clone ok, build ok, run fails, cleanup procs
+    mock_exec.side_effect = [ok_proc, ok_proc, fail_proc, ok_proc, ok_proc, ok_proc]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -310,13 +266,7 @@ async def test_execute_build_timeout(
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -356,13 +306,7 @@ async def test_status_transitions_order(
     executor._update_status = tracking_update  # type: ignore[assignment]
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     assert statuses == ["cloning", "building", "running", "succeeded"]
@@ -384,31 +328,20 @@ async def test_cleanup_called_on_failure(
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     # Check cleanup calls were made (the last 3 create_subprocess_exec calls)
     calls = mock_exec.call_args_list
     docker = str(executor_settings.docker_bin)
 
-    # Find cleanup calls - they use sudo -u ... docker rm, etc.
-    cleanup_cmds: list[str] = []
+    # Find cleanup calls - they use docker rm, docker image rm, docker builder prune
+    cleanup_cmds = []
     for c in calls:
         args = c[0] if c[0] else ()
-        # With sudo -u, args start with ("sudo", "-u", unix_user, docker_bin, ...)
-        # Find docker subcommand position
-        if "sudo" in args and docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1:
-                subcmd = args[docker_idx + 1]
-                if subcmd in ("rm", "image", "builder"):
-                    cleanup_cmds.append(subcmd)
+        if args and args[0] == docker:
+            if len(args) > 1 and args[1] in ("rm", "image", "builder"):
+                cleanup_cmds.append(args[1])
 
     assert "rm" in cleanup_cmds
     assert "image" in cleanup_cmds
@@ -427,24 +360,18 @@ async def test_docker_bin_path_used(
     executor = JobExecutor(executor_settings)
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     docker = str(executor_settings.docker_bin)
     for c in mock_exec.call_args_list:
         args = c[0] if c[0] else ()
-        # Skip the git clone call and get_resource_limits.py call
-        if args and args[0] in ("git", "python3"):
+        # Skip the git clone call
+        if args and args[0] == "git":
             continue
-        # With sudo -u, docker_bin appears at index 3; without, at index 0
+        # All other calls should use the docker wrapper path
         if args:
-            assert docker in args, f"Expected {docker} in call {args}"
+            assert args[0] == docker, f"Expected {docker} but got {args[0]} in call {args}"
 
 
 @pytest.mark.asyncio
@@ -459,13 +386,7 @@ async def test_log_files_created(
     executor = JobExecutor(executor_settings)
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     workspace = executor_settings.workspace_root / JOB_ID
@@ -510,18 +431,13 @@ async def test_cancel_check_stops_execution(
     executor._check_cancelled = cancel_after_clone  # type: ignore[assignment]
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     # Verify build was never started - no docker build call should exist
     calls = mock_exec.call_args_list
-    build_calls = [c for c in calls if c[0] and "build" in c[0]]
+    docker_cmds = [c[0] for c in calls if c[0] and c[0][0] == str(executor_settings.docker_bin)]
+    build_calls = [c for c in docker_cmds if len(c) > 1 and c[1] == "build"]
     assert len(build_calls) == 0, "Build should not have been called after cancel"
 
 
@@ -537,13 +453,7 @@ async def test_phase_timestamps_recorded(
     executor = JobExecutor(executor_settings)
 
     await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
+        JOB_ID, REPO_URL, BRANCH, gpu_count=1, timeout_seconds=None, db_path=db_path
     )
 
     async with aiosqlite.connect(db_path) as db:
@@ -561,263 +471,3 @@ async def test_phase_timestamps_recorded(
     # Completed phases should have ended_at set
     for phase in ("queued", "cloning", "building", "running"):
         assert timestamps[phase]["ended_at"] is not None, f"{phase} missing ended_at"
-
-
-# ---------------------------------------------------------------------------
-# Tests - sudo -u, resource limits, interface label
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
-async def test_build_uses_sudo_prefix(
-    mock_exec: AsyncMock,
-    executor_settings: Settings,
-    db_path: Path,
-) -> None:
-    """Build command includes sudo -u {unix_username} prefix."""
-    mock_exec.return_value = _mock_process(0)
-    executor = JobExecutor(executor_settings)
-
-    await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
-    )
-
-    docker = str(executor_settings.docker_bin)
-    # Find the build call
-    build_call = None
-    for c in mock_exec.call_args_list:
-        args = c[0] if c[0] else ()
-        if docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1 and args[docker_idx + 1] == "build":
-                build_call = args
-                break
-
-    assert build_call is not None, "No build call found"
-    assert build_call[0] == "sudo"
-    assert build_call[1] == "-u"
-    assert build_call[2] == UNIX_USER
-    assert build_call[3] == docker
-
-
-@pytest.mark.asyncio
-@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
-async def test_run_uses_sudo_with_interface_label(
-    mock_exec: AsyncMock,
-    executor_settings: Settings,
-    db_path: Path,
-) -> None:
-    """Run command includes sudo -u and --label ds01.interface=api."""
-    mock_exec.return_value = _mock_process(0)
-    executor = JobExecutor(executor_settings)
-
-    await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
-    )
-
-    docker = str(executor_settings.docker_bin)
-    # Find the run call
-    run_call = None
-    for c in mock_exec.call_args_list:
-        args = c[0] if c[0] else ()
-        if docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1 and args[docker_idx + 1] == "run":
-                run_call = args
-                break
-
-    assert run_call is not None, "No run call found"
-    # Verify sudo -u prefix
-    assert run_call[0] == "sudo"
-    assert run_call[1] == "-u"
-    assert run_call[2] == UNIX_USER
-    assert run_call[3] == docker
-    # Verify interface label
-    assert "--label" in run_call
-    label_idx = run_call.index("--label")
-    assert run_call[label_idx + 1] == "ds01.interface=api"
-
-
-@pytest.mark.asyncio
-@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
-async def test_run_includes_resource_limits(
-    mock_exec: AsyncMock,
-    executor_settings: Settings,
-    db_path: Path,
-) -> None:
-    """Run command includes resource limits from _get_resource_limits."""
-    mock_exec.return_value = _mock_process(0)
-    executor = JobExecutor(executor_settings)
-
-    # Mock _get_resource_limits to return known values
-    resource_args = ["--memory=32g", "--shm-size=16g"]
-    with patch.object(executor, "_get_resource_limits", return_value=resource_args):
-        await executor.execute(
-            JOB_ID,
-            REPO_URL,
-            BRANCH,
-            gpu_count=1,
-            timeout_seconds=None,
-            db_path=db_path,
-            unix_username=UNIX_USER,
-        )
-
-    docker = str(executor_settings.docker_bin)
-    # Find the run call
-    run_call = None
-    for c in mock_exec.call_args_list:
-        args = c[0] if c[0] else ()
-        if docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1 and args[docker_idx + 1] == "run":
-                run_call = args
-                break
-
-    assert run_call is not None, "No run call found"
-    assert "--memory=32g" in run_call
-    assert "--shm-size=16g" in run_call
-
-
-@pytest.mark.asyncio
-async def test_get_resource_limits_strips_cgroup_parent(
-    executor_settings: Settings,
-) -> None:
-    """_get_resource_limits strips --cgroup-parent from output."""
-    executor = JobExecutor(executor_settings)
-
-    # Mock subprocess that returns args including --cgroup-parent
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 0
-    mock_proc.communicate.return_value = (
-        b"--cpus=32 --memory=32g --cgroup-parent=ds01-student-alice.slice --shm-size=16g",
-        b"",
-    )
-
-    async def passthrough_wait_for(coro: object, **kwargs: object) -> object:
-        return await coro  # type: ignore[misc]
-
-    with patch("ds01_jobs.executor.asyncio.create_subprocess_exec", return_value=mock_proc):
-        with patch("ds01_jobs.executor.asyncio.wait_for", side_effect=passthrough_wait_for):
-            result = await executor._get_resource_limits("alice")
-
-    assert "--cpus=32" in result
-    assert "--memory=32g" in result
-    assert "--shm-size=16g" in result
-    # cgroup-parent must be stripped
-    assert not any(a.startswith("--cgroup-parent=") for a in result)
-
-
-@pytest.mark.asyncio
-async def test_get_resource_limits_fallback_on_failure(
-    executor_settings: Settings,
-) -> None:
-    """_get_resource_limits returns empty list when subprocess fails."""
-    executor = JobExecutor(executor_settings)
-
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 1
-    mock_proc.communicate.return_value = (b"", b"user not found")
-
-    async def passthrough_wait_for(coro: object, **kwargs: object) -> object:
-        return await coro  # type: ignore[misc]
-
-    with patch("ds01_jobs.executor.asyncio.create_subprocess_exec", return_value=mock_proc):
-        with patch("ds01_jobs.executor.asyncio.wait_for", side_effect=passthrough_wait_for):
-            result = await executor._get_resource_limits("nonexistent")
-
-    assert result == []
-
-
-@pytest.mark.asyncio
-@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
-async def test_cleanup_uses_sudo(
-    mock_exec: AsyncMock,
-    executor_settings: Settings,
-    db_path: Path,
-) -> None:
-    """Cleanup commands (rm, image rm, builder prune) all use sudo -u."""
-    ok_proc = _mock_process(0)
-    fail_proc = _mock_process(1)
-    cleanup_proc = _mock_process(0)
-    # clone ok, build fails, then 3 cleanup calls
-    mock_exec.side_effect = [ok_proc, fail_proc, cleanup_proc, cleanup_proc, cleanup_proc]
-
-    executor = JobExecutor(executor_settings)
-    await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
-    )
-
-    docker = str(executor_settings.docker_bin)
-    # Find cleanup calls (rm, image rm, builder prune) - all should use sudo -u
-    cleanup_calls: list[tuple[str, ...]] = []
-    for c in mock_exec.call_args_list:
-        args = c[0] if c[0] else ()
-        if docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1:
-                subcmd = args[docker_idx + 1]
-                if subcmd in ("rm", "image", "builder"):
-                    cleanup_calls.append(args)
-
-    assert len(cleanup_calls) == 3, f"Expected 3 cleanup calls, got {len(cleanup_calls)}"
-    for call_args in cleanup_calls:
-        assert call_args[0] == "sudo", f"Cleanup call missing sudo prefix: {call_args}"
-        assert call_args[1] == "-u"
-        assert call_args[2] == UNIX_USER
-
-
-@pytest.mark.asyncio
-@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
-async def test_collect_results_uses_sudo(
-    mock_exec: AsyncMock,
-    executor_settings: Settings,
-    db_path: Path,
-) -> None:
-    """docker cp for result collection uses sudo -u prefix."""
-    mock_exec.return_value = _mock_process(0)
-    executor = JobExecutor(executor_settings)
-
-    await executor.execute(
-        JOB_ID,
-        REPO_URL,
-        BRANCH,
-        gpu_count=1,
-        timeout_seconds=None,
-        db_path=db_path,
-        unix_username=UNIX_USER,
-    )
-
-    docker = str(executor_settings.docker_bin)
-    # Find the cp call
-    cp_call = None
-    for c in mock_exec.call_args_list:
-        args = c[0] if c[0] else ()
-        if docker in args:
-            docker_idx = args.index(docker)
-            if len(args) > docker_idx + 1 and args[docker_idx + 1] == "cp":
-                cp_call = args
-                break
-
-    assert cp_call is not None, "No cp call found"
-    assert cp_call[0] == "sudo"
-    assert cp_call[1] == "-u"
-    assert cp_call[2] == UNIX_USER
