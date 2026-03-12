@@ -35,11 +35,13 @@ def populated_db(tmp_path: Path) -> Path:
     conn.executescript(SCHEMA_SQL)
     for i in range(2):
         conn.execute(
-            "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, "
-            "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, "
+            "job_name, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 f"job-{i}",
                 "testuser",
+                "testuser_unix",
                 "https://github.com/test/repo.git",
                 "main",
                 1,
@@ -179,11 +181,12 @@ async def test_poll_skips_oversized_jobs(
     conn = sqlite3.connect(db_path)
     # Job needing 2 GPUs
     conn.execute(
-        "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, "
-        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, "
+        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             "big-job",
             "testuser",
+            "testuser_unix",
             "https://github.com/test/repo.git",
             "main",
             2,
@@ -195,11 +198,12 @@ async def test_poll_skips_oversized_jobs(
     )
     # Job needing 1 GPU
     conn.execute(
-        "INSERT INTO jobs (id, username, repo_url, branch, gpu_count, "
-        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, "
+        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             "small-job",
             "testuser",
+            "testuser_unix",
             "https://github.com/test/repo.git",
             "main",
             1,
@@ -281,3 +285,53 @@ async def test_completed_tasks_cleaned_up(
 
     assert "done-job" not in runner.active_jobs
     assert "done-job" not in runner.active_executors
+
+
+@pytest.mark.asyncio
+@patch("ds01_jobs.runner.get_available_gpu_count", new_callable=AsyncMock)
+@patch("ds01_jobs.runner.JobExecutor")
+async def test_poll_passes_unix_username_to_executor(
+    mock_executor_cls: AsyncMock,
+    mock_gpu: AsyncMock,
+    runner_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    """Runner passes unix_username from DB to executor.execute()."""
+    db_path = tmp_path / "test.db"
+    runner_settings.db_path = db_path
+    _init_db_sync(db_path)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO jobs (id, username, unix_username, repo_url, branch, gpu_count, "
+        "job_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "unix-test-job",
+            "alice_github",
+            "alice_unix",
+            "https://github.com/test/repo.git",
+            "main",
+            1,
+            "unix-test",
+            "queued",
+            "2026-01-01T00:00:00",
+            "2026-01-01T00:00:00",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    mock_gpu.return_value = 4
+    mock_executor = AsyncMock()
+    mock_executor.execute = AsyncMock()
+    mock_executor_cls.return_value = mock_executor
+
+    runner = JobRunner(runner_settings)
+    await runner._poll_and_dispatch()
+
+    # Verify executor.execute was called with unix_username="alice_unix"
+    assert len(runner.active_jobs) == 1
+    mock_executor.execute.assert_called_once()
+    call_kwargs = mock_executor.execute.call_args
+    # unix_username should be passed as a keyword argument
+    assert call_kwargs[1]["unix_username"] == "alice_unix"
