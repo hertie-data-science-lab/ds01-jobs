@@ -1,0 +1,28 @@
+[Unit]
+Description=DS01 Job Submission API
+Documentation=file:///opt/ds01-jobs/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=ds01
+Group=ds01
+WorkingDirectory=/opt/ds01-jobs
+ExecStart=/opt/ds01-jobs/.venv/bin/uvicorn ds01_jobs.app:app --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/ds01-jobs/env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ds01-api
+
+# Hardening
+ProtectSystem=full
+ReadWritePaths=/opt/ds01-jobs/data /var/log/ds01 /var/lib/ds01-jobs
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

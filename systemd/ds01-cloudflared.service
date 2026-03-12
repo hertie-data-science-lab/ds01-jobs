@@ -1,0 +1,27 @@
+[Unit]
+Description=DS01 Cloudflare Tunnel
+After=network.target ds01-api.service
+Requires=ds01-api.service
+
+[Service]
+Type=simple
+User=ds01
+Group=ds01
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0; sleep 1; done; echo "API not ready after 30s"; exit 1'
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/ds01-jobs/env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ds01-cloudflared
+
+# Hardening
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
