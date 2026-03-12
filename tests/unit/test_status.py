@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 import bcrypt
@@ -555,7 +555,8 @@ async def test_list_jobs_empty(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_quota_defaults(tmp_path: Path) -> None:
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
+async def test_get_quota_defaults(mock_group: AsyncMock, tmp_path: Path) -> None:
     """Without resource-limits.yaml, quota returns defaults."""
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
@@ -581,7 +582,8 @@ async def test_get_quota_defaults(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_quota_with_active_jobs(tmp_path: Path) -> None:
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
+async def test_get_quota_with_active_jobs(mock_group: AsyncMock, tmp_path: Path) -> None:
     """Active jobs are reflected in concurrent.used."""
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
@@ -606,7 +608,8 @@ async def test_get_quota_with_active_jobs(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_quota_other_user_isolation(tmp_path: Path) -> None:
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
+async def test_get_quota_other_user_isolation(mock_group: AsyncMock, tmp_path: Path) -> None:
     """Other user's jobs do not affect testuser's quota."""
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)

@@ -1,0 +1,30 @@
+[Unit]
+Description=DS01 Job Runner
+Documentation=file:///opt/ds01-jobs/README.md
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=ds01
+Group=ds01
+WorkingDirectory=/opt/ds01-jobs
+ExecStart=/opt/ds01-jobs/.venv/bin/ds01-job-runner
+Restart=always
+RestartSec=5
+KillMode=process
+EnvironmentFile=/etc/ds01-jobs/env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ds01-runner
+
+# Hardening (relaxed - needs Docker/sudo access)
+ProtectSystem=full
+ReadWritePaths=/opt/ds01-jobs/data /var/log/ds01 /var/lib/ds01-jobs
+PrivateTmp=true
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

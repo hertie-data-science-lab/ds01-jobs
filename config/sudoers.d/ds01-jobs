@@ -1,0 +1,5 @@
+# /etc/sudoers.d/ds01-jobs
+# Allow ds01 service user to run Docker wrapper as any user
+# Required for: sudo -u {unix_username} /usr/local/bin/docker ...
+# Deployed by: /opt/ds01-jobs/deploy.sh
+ds01 ALL=(ALL) NOPASSWD: /usr/local/bin/docker
