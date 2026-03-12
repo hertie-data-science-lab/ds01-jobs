@@ -53,8 +53,13 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_username_status ON jobs(username, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_username_created ON jobs(username, created_at);
 """
-# Note: Schema uses CREATE TABLE IF NOT EXISTS. For pre-v1 development,
-# drop and recreate the DB if columns are missing after schema changes.
+
+# Migrations for columns added after initial schema. ALTER TABLE ADD COLUMN
+# is a no-op if the column already exists (we catch the OperationalError).
+_MIGRATIONS = [
+    "ALTER TABLE api_keys ADD COLUMN unix_username TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN unix_username TEXT NOT NULL DEFAULT ''",
+]
 
 
 @lru_cache(maxsize=1)
@@ -75,6 +80,11 @@ async def init_db(db_path: Path | None = None) -> None:
     async with aiosqlite.connect(path) as db:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript(SCHEMA_SQL)
+        for stmt in _MIGRATIONS:
+            try:
+                await db.execute(stmt)
+            except aiosqlite.OperationalError:
+                pass  # column already exists
         await db.commit()
 
 
