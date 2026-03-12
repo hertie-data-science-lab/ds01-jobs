@@ -1,0 +1,137 @@
+"""Full job lifecycle integration test - requires GPU runner (Tier 2).
+
+Exercises the complete pipeline on the self-hosted GPU runner:
+    key-create -> submit -> poll -> verify succeeded -> download results
+
+Prerequisites:
+    - ds01-jobs API running at http://127.0.0.1:8765
+    - ds01-job-runner active and connected
+    - Docker available with GPU access
+    - Test repo https://github.com/hertie-data-science-lab/ds01-test-job must exist
+      with a Dockerfile that runs ``nvidia-smi > /output/gpu.txt``
+
+If the test repo does not exist yet, the test will fail with a clear clone
+error. Creating the repo is a separate manual step.
+
+Marked ``@pytest.mark.integration`` so it only runs on the self-hosted GPU
+runner via Tier 2 CI.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import time
+import uuid
+
+import pytest
+
+pytestmark = pytest.mark.integration
+
+# Known minimal test repo - Dockerfile runs nvidia-smi and writes to /output/
+TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-test-job"
+
+API_BASE_URL = "http://127.0.0.1:8765"
+
+# Maximum time to wait for a job to reach a terminal state (seconds)
+POLL_TIMEOUT = 300
+
+# Backoff parameters for polling (seconds)
+INITIAL_BACKOFF = 2
+MAX_BACKOFF = 30
+
+
+def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess with merged environment and return the result."""
+    merged_env = {**os.environ, **(env or {})}
+    return subprocess.run(args, capture_output=True, text=True, env=merged_env)
+
+
+@pytest.fixture()
+def api_key() -> str:
+    """Create a temporary API key for the lifecycle test.
+
+    Uses ``ds01-job-admin key-create`` to create a key for a test user.
+    Tears down by revoking the key after the test.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    test_username = f"test-lifecycle-{suffix}"
+
+    # Create a key using --json for reliable parsing
+    result = _run(["ds01-job-admin", "key-create", test_username, "--json"])
+    assert result.returncode == 0, f"key-create failed: {result.stderr}"
+
+    data = json.loads(result.stdout)
+    raw_key = data["key"]
+
+    yield raw_key
+
+    # Teardown: revoke the key
+    _run(["ds01-job-admin", "key-revoke", test_username, "--yes"])
+
+
+@pytest.fixture()
+def api_base_url() -> str:
+    """Return the local API base URL."""
+    return API_BASE_URL
+
+
+def test_full_job_lifecycle(
+    api_key: str,
+    api_base_url: str,
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """Submit a job, wait for completion, verify success, download results."""
+    env = {
+        "DS01_API_KEY": api_key,
+        "DS01_API_URL": api_base_url,
+    }
+
+    # 1. Submit a job via ds01-submit run
+    result = _run(["ds01-submit", "run", TEST_REPO_URL, "--json"], env=env)
+    assert result.returncode == 0, f"Job submission failed: {result.stderr}"
+
+    submit_data = json.loads(result.stdout)
+    job_id = submit_data["job_id"]
+    assert job_id, "No job_id returned from submission"
+
+    # 2. Poll status until terminal state (max 5 minutes)
+    backoff = INITIAL_BACKOFF
+    deadline = time.monotonic() + POLL_TIMEOUT
+    final_status = None
+
+    while time.monotonic() < deadline:
+        result = _run(["ds01-submit", "status", job_id, "--json"], env=env)
+        assert result.returncode in (0, 2), f"Status check failed: {result.stderr}"
+
+        status_data = json.loads(result.stdout)
+        current_status = status_data["status"]
+
+        if current_status in ("succeeded", "failed"):
+            final_status = current_status
+            break
+
+        time.sleep(backoff)
+        backoff = min(backoff * 2, MAX_BACKOFF)
+    else:
+        pytest.fail(f"Job {job_id} did not reach terminal state within {POLL_TIMEOUT}s")
+
+    # 3. Assert the job succeeded
+    assert final_status == "succeeded", (
+        f"Job {job_id} ended with status '{final_status}', expected 'succeeded'. "
+        f"Status data: {json.dumps(status_data, indent=2)}"
+    )
+
+    # 4. Download results
+    output_dir = tmp_path / "results"
+    result = _run(
+        ["ds01-submit", "results", job_id, "-o", str(output_dir)],
+        env=env,
+    )
+    assert result.returncode == 0, f"Results download failed: {result.stderr}"
+
+    # 5. Verify output directory is not empty
+    assert output_dir.exists(), f"Output directory {output_dir} does not exist"
+    result_files = list(output_dir.rglob("*"))
+    assert len(result_files) > 0, f"Output directory {output_dir} is empty"
