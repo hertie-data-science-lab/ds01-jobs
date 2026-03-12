@@ -162,13 +162,15 @@ setup_system_user() {
         log "  Created system user ds01"
     fi
     usermod -aG docker ds01 2>/dev/null || true
-    log "  Ensured ds01 is in docker group"
+    usermod -aG ds-admin ds01 2>/dev/null || true
+    log "  Ensured ds01 is in docker and ds-admin groups"
 }
 
 setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
+    chmod 0750 /opt/ds01-jobs
     mkdir -p /opt/ds01-jobs/data
     chown ds01:ds01 /opt/ds01-jobs/data
 
