@@ -172,7 +172,8 @@ setup_directories() {
 
     chmod -R g+rX /opt/ds01-jobs
     mkdir -p /opt/ds01-jobs/data
-    chown ds01:ds01 /opt/ds01-jobs/data
+    chown -R ds01:ds-admin /opt/ds01-jobs/data
+    chmod 770 /opt/ds01-jobs/data
 
     mkdir -p /var/lib/ds01-jobs/workspaces
     chown ds01:ds01 /var/lib/ds01-jobs
