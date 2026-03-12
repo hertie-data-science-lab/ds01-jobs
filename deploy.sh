@@ -170,7 +170,7 @@ setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
-    chmod 0750 /opt/ds01-jobs
+    chmod -R g+rX /opt/ds01-jobs
     mkdir -p /opt/ds01-jobs/data
     chown ds01:ds01 /opt/ds01-jobs/data
 
@@ -239,6 +239,10 @@ setup_python_env() {
     cd "$INSTALL_DIR"
     "$UV_BIN" sync --locked
     cd - >/dev/null
+
+    # Ensure ds01 service user can read the venv
+    chmod -R g+rX "$INSTALL_DIR/.venv"
+    log "  .venv group-readable for ds01 service user"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
