@@ -20,10 +20,8 @@ runner via Tier 2 CI.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
-import uuid
 
 import pytest
 
@@ -52,16 +50,16 @@ def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.Compl
 def api_key() -> str:
     """Create a temporary API key for the lifecycle test.
 
-    Uses ``ds01-job-admin key-create`` to create a key for a test user.
-    Tears down by revoking the key after the test.
+    Uses ``ds01-job-admin key-create`` with the ``datasciencelab`` org member
+    account. Revokes any pre-existing key first, then tears down after the test.
     """
-    suffix = uuid.uuid4().hex[:8]
-    test_username = f"test-lifecycle-{suffix}"
+    github_user = "datasciencelab"
+    unix_user = "datasciencelab"
 
-    # Create a key using --json for reliable parsing
-    # key-create requires both github_username and unix_username
-    unix_user = os.environ.get("USER", "datasciencelab")
-    result = _run(["ds01-job-admin", "key-create", test_username, unix_user, "--json"])
+    # Revoke any leftover key from a previous run
+    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
+
+    result = _run(["ds01-job-admin", "key-create", github_user, unix_user, "--json"])
     assert result.returncode == 0, f"key-create failed: {result.stderr}"
 
     data = json.loads(result.stdout)
@@ -70,7 +68,7 @@ def api_key() -> str:
     yield raw_key
 
     # Teardown: revoke the key
-    _run(["ds01-job-admin", "key-revoke", test_username, "--yes"])
+    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
 
 
 @pytest.fixture()
