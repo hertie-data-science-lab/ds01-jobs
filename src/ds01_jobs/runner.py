@@ -91,8 +91,8 @@ class JobRunner:
         async with aiosqlite.connect(self.settings.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT id, username, unix_username, repo_url, branch, gpu_count, "
-                "timeout_seconds FROM jobs WHERE status='queued' ORDER BY created_at ASC"
+                "SELECT id, username, repo_url, branch, gpu_count, timeout_seconds "
+                "FROM jobs WHERE status='queued' ORDER BY created_at ASC"
             )
             rows = await cursor.fetchall()
 
@@ -115,7 +115,6 @@ class JobRunner:
                     gpu_count,
                     row["timeout_seconds"],
                     self.settings.db_path,
-                    unix_username=row["unix_username"],
                 )
             )
             self.active_jobs[job_id] = task
