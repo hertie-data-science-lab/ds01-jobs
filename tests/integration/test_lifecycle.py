@@ -54,7 +54,7 @@ def api_key() -> str:
     Uses ``ds01-job-admin key-create`` with the ``datasciencelab`` org member
     account. Revokes any pre-existing key first, then tears down after the test.
     """
-    github_user = "datasciencelab"
+    github_user = "henrycgbaker"
     unix_user = "datasciencelab"
 
     # Revoke any leftover key from a previous run
