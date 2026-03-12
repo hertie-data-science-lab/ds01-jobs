@@ -19,7 +19,7 @@ import httpx
 import typer
 
 from ds01_jobs.config import Settings
-from ds01_jobs.database import SCHEMA_SQL, get_db_sync
+from ds01_jobs.database import _MIGRATIONS, SCHEMA_SQL, get_db_sync
 
 app = typer.Typer(
     name="ds01-job-admin",
@@ -164,8 +164,14 @@ def check_org_membership(username: str, org: str) -> bool:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Ensure the api_keys table exists."""
+    """Ensure the api_keys table exists and apply any pending migrations."""
     conn.executescript(SCHEMA_SQL)
+    for stmt in _MIGRATIONS:
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists
+    conn.commit()
 
 
 def _get_active_key(conn: sqlite3.Connection, username: str) -> sqlite3.Row | None:
