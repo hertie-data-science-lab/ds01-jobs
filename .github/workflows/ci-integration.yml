@@ -21,8 +21,8 @@ jobs:
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
 
-          # ds01 service user needs to traverse $HOME to reach anaconda3 Python
-          chmod o+x /home/datasciencelab
+          # ds01 is in ds-admin group (same as $HOME), so group-execute is needed
+          chmod g+x /home/datasciencelab
 
           sudo systemctl restart ds01-api ds01-runner
 
