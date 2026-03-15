@@ -21,7 +21,7 @@ jobs:
         run: |
           cd /opt/ds01-jobs
           git fetch origin "$GITHUB_SHA"
-          git checkout "$GITHUB_SHA"
+          git checkout -B ci-test "$GITHUB_SHA"
           uv sync --locked --all-groups
 
       - name: Fix permissions and restart services
