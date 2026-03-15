@@ -404,6 +404,8 @@ class JobExecutor:
         container_name = f"ds01-job-{job_id}"
         results_dir = workspace / "results"
         results_dir.mkdir(exist_ok=True)
+        if self._unix_username:
+            results_dir.chmod(0o777)
 
         unix_username = self._unix_username
         if unix_username:
