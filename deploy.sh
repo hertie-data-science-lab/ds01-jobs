@@ -162,15 +162,18 @@ setup_system_user() {
         log "  Created system user ds01"
     fi
     usermod -aG docker ds01 2>/dev/null || true
-    log "  Ensured ds01 is in docker group"
+    usermod -aG ds-admin ds01 2>/dev/null || true
+    log "  Ensured ds01 is in docker and ds-admin groups"
 }
 
 setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
+    chmod -R g+rX /opt/ds01-jobs
     mkdir -p /opt/ds01-jobs/data
-    chown ds01:ds01 /opt/ds01-jobs/data
+    chown -R ds01:ds-admin /opt/ds01-jobs/data
+    chmod 770 /opt/ds01-jobs/data
 
     mkdir -p /var/lib/ds01-jobs/workspaces
     chown ds01:ds01 /var/lib/ds01-jobs
@@ -237,6 +240,10 @@ setup_python_env() {
     cd "$INSTALL_DIR"
     "$UV_BIN" sync --locked
     cd - >/dev/null
+
+    # Ensure ds01 service user can read the venv
+    chmod -R g+rX "$INSTALL_DIR/.venv"
+    log "  .venv group-readable for ds01 service user"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
