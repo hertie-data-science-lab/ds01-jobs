@@ -176,8 +176,10 @@ setup_directories() {
     chmod 770 /opt/ds01-jobs/data
 
     mkdir -p /var/lib/ds01-jobs/workspaces
-    chown ds01:ds01 /var/lib/ds01-jobs
-    chown ds01:ds01 /var/lib/ds01-jobs/workspaces
+    chown ds01:ds-admin /var/lib/ds01-jobs
+    chown ds01:ds-admin /var/lib/ds01-jobs/workspaces
+    chmod 0750 /var/lib/ds01-jobs
+    chmod 0750 /var/lib/ds01-jobs/workspaces
 
     mkdir -p /var/log/ds01
     touch /var/log/ds01/events.jsonl

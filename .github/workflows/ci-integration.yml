@@ -17,16 +17,26 @@ jobs:
       - name: Unit tests
         run: uv run pytest -m 'not integration' --tb=short
 
-      - name: Fix venv permissions and restart services
+      - name: Sync code to deployment directory
         run: |
-          chmod -R g+rX /opt/ds01-jobs
+          cd /opt/ds01-jobs
+          git fetch origin "$GITHUB_SHA"
+          git checkout -B ci-test "$GITHUB_SHA"
+          uv sync --locked --all-groups
+
+      - name: Fix permissions and restart services
+        run: |
+          find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
+          chmod g+x /home/datasciencelab
           sudo systemctl restart ds01-api ds01-runner
-          for i in $(seq 1 15); do
-            curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0
+
+          for i in $(seq 1 20); do
+            python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')" 2>/dev/null && exit 0
             sleep 1
           done
-          echo "API not ready after 15s"
-          journalctl -u ds01-api --no-pager -n 20 2>/dev/null || true
+          echo "API not ready after 20s"
+          python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8765/health').read())" || true
+          systemctl status ds01-api --no-pager || true
           exit 1
 
       - name: Integration tests

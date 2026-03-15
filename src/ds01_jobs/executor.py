@@ -100,6 +100,11 @@ class JobExecutor:
         workspace = self.settings.workspace_root / job_id
         workspace.mkdir(parents=True, exist_ok=True)
 
+        # Ensure workspace dirs are traversable for sudo -u Docker builds
+        if unix_username:
+            self.settings.workspace_root.parent.chmod(0o755)
+            self.settings.workspace_root.chmod(0o755)
+
         try:
             # Set started_at and record queued phase timestamp
             async with aiosqlite.connect(db_path) as db:
@@ -116,6 +121,12 @@ class JobExecutor:
                 await db.commit()
 
             await self._clone(job_id, repo_url, branch, workspace, db_path)
+
+            # Make workspace accessible by unix_username for Docker build/cp
+            if unix_username:
+                proc = await asyncio.create_subprocess_exec("chmod", "-R", "a+rwX", str(workspace))
+                await proc.wait()
+
             await self._build(job_id, workspace, db_path, unix_username)
             await self._run_container(
                 job_id, workspace, gpu_count, timeout_seconds, db_path, unix_username
@@ -393,6 +404,8 @@ class JobExecutor:
         container_name = f"ds01-job-{job_id}"
         results_dir = workspace / "results"
         results_dir.mkdir(exist_ok=True)
+        if self._unix_username:
+            results_dir.chmod(0o777)
 
         unix_username = self._unix_username
         if unix_username:
