@@ -19,7 +19,7 @@ jobs:
 
       - name: Fix venv permissions and restart services
         run: |
-          chmod -R g+rX /opt/ds01-jobs
+          find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
           sudo systemctl restart ds01-api ds01-runner
           for i in $(seq 1 15); do
             curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0

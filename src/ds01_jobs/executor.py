@@ -116,6 +116,12 @@ class JobExecutor:
                 await db.commit()
 
             await self._clone(job_id, repo_url, branch, workspace, db_path)
+
+            # Make workspace readable by unix_username for Docker build context
+            if unix_username:
+                proc = await asyncio.create_subprocess_exec("chmod", "-R", "a+rX", str(workspace))
+                await proc.wait()
+
             await self._build(job_id, workspace, db_path, unix_username)
             await self._run_container(
                 job_id, workspace, gpu_count, timeout_seconds, db_path, unix_username

@@ -129,12 +129,13 @@ async def test_execute_clone_failure_retries(
 ) -> None:
     """Clone retries once on failure and succeeds on second attempt."""
     # First clone call fails, second succeeds, rest succeed
-    # Sequence: clone(fail), clone-retry(ok), build(ok), get_resource_limits(ok),
-    #           run(ok), collect(ok), cleanup x3(ok)
+    # Sequence: clone(fail), clone-retry(ok), chmod(ok), build(ok),
+    #           get_resource_limits(ok), run(ok), collect(ok), cleanup x3(ok)
     fail_proc = _mock_process(128)
     ok_proc = _mock_process(0)
     mock_exec.side_effect = [
         fail_proc,
+        ok_proc,
         ok_proc,
         ok_proc,
         ok_proc,
@@ -211,8 +212,8 @@ async def test_execute_build_failure(
     """Build failure sets status=failed with failed_phase=build."""
     ok_proc = _mock_process(0)
     fail_proc = _mock_process(1)
-    # clone ok, build fails, cleanup procs
-    mock_exec.side_effect = [ok_proc, fail_proc, ok_proc, ok_proc, ok_proc]
+    # clone ok, chmod ok, build fails, cleanup procs
+    mock_exec.side_effect = [ok_proc, ok_proc, fail_proc, ok_proc, ok_proc, ok_proc]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
@@ -247,8 +248,17 @@ async def test_execute_run_failure(
     """Run failure sets status=failed with failed_phase=run."""
     ok_proc = _mock_process(0)
     fail_proc = _mock_process(1)
-    # clone ok, build ok, get_resource_limits ok, run fails, cleanup x3
-    mock_exec.side_effect = [ok_proc, ok_proc, ok_proc, fail_proc, ok_proc, ok_proc, ok_proc]
+    # clone ok, chmod ok, build ok, get_resource_limits ok, run fails, cleanup x3
+    mock_exec.side_effect = [
+        ok_proc,
+        ok_proc,
+        ok_proc,
+        ok_proc,
+        fail_proc,
+        ok_proc,
+        ok_proc,
+        ok_proc,
+    ]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
@@ -290,9 +300,17 @@ async def test_execute_build_timeout(
     timeout_proc.returncode = None
     timeout_proc.wait.return_value = -9
 
+    chmod_proc = _mock_process(0)
     cleanup_proc = _mock_process(0)
-    # clone ok, build times out, cleanup procs
-    mock_exec.side_effect = [ok_proc, timeout_proc, cleanup_proc, cleanup_proc, cleanup_proc]
+    # clone ok, chmod ok, build times out, cleanup procs
+    mock_exec.side_effect = [
+        ok_proc,
+        chmod_proc,
+        timeout_proc,
+        cleanup_proc,
+        cleanup_proc,
+        cleanup_proc,
+    ]
 
     # First wait_for call (clone) succeeds, second (build) times out
     call_count = 0
@@ -379,8 +397,8 @@ async def test_cleanup_called_on_failure(
     ok_proc = _mock_process(0)
     fail_proc = _mock_process(1)
     cleanup_proc = _mock_process(0)
-    # clone ok, build fails, then 3 cleanup calls (rm, image rm, builder prune)
-    mock_exec.side_effect = [ok_proc, fail_proc, cleanup_proc, cleanup_proc, cleanup_proc]
+    # clone ok, chmod ok, build fails, then 3 cleanup calls (rm, image rm, builder prune)
+    mock_exec.side_effect = [ok_proc, ok_proc, fail_proc, cleanup_proc, cleanup_proc, cleanup_proc]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
@@ -439,8 +457,8 @@ async def test_docker_bin_path_used(
     docker = str(executor_settings.docker_bin)
     for c in mock_exec.call_args_list:
         args = c[0] if c[0] else ()
-        # Skip the git clone call and get_resource_limits.py call
-        if args and args[0] in ("git", "python3"):
+        # Skip non-docker calls: git clone, get_resource_limits.py, chmod
+        if args and args[0] in ("git", "python3", "chmod"):
             continue
         # With sudo -u, docker_bin appears at index 3; without, at index 0
         if args:
@@ -484,7 +502,8 @@ async def test_cancel_check_stops_execution(
     """If job is cancelled between phases, executor stops before the next phase."""
     ok_proc = _mock_process(0)
     cleanup_proc = _mock_process(0)
-    mock_exec.side_effect = [ok_proc, cleanup_proc, cleanup_proc, cleanup_proc]
+    # clone ok, chmod ok, build cancelled, cleanup x3
+    mock_exec.side_effect = [ok_proc, ok_proc, cleanup_proc, cleanup_proc, cleanup_proc]
 
     executor = JobExecutor(executor_settings)
 
@@ -752,8 +771,8 @@ async def test_cleanup_uses_sudo(
     ok_proc = _mock_process(0)
     fail_proc = _mock_process(1)
     cleanup_proc = _mock_process(0)
-    # clone ok, build fails, then 3 cleanup calls
-    mock_exec.side_effect = [ok_proc, fail_proc, cleanup_proc, cleanup_proc, cleanup_proc]
+    # clone ok, chmod ok, build fails, then 3 cleanup calls
+    mock_exec.side_effect = [ok_proc, ok_proc, fail_proc, cleanup_proc, cleanup_proc, cleanup_proc]
 
     executor = JobExecutor(executor_settings)
     await executor.execute(
