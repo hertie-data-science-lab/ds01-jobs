@@ -20,13 +20,26 @@ jobs:
       - name: Fix venv permissions and restart services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
+
+          # Diagnostics: verify service prerequisites
+          echo "--- Checking service prerequisites ---"
+          ls -la /etc/ds01-jobs/env 2>/dev/null || echo "WARNING: /etc/ds01-jobs/env not found"
+          systemctl list-unit-files ds01-api.service 2>/dev/null || echo "WARNING: ds01-api unit not found"
+          ls -la /opt/ds01-jobs/.venv/bin/uvicorn 2>/dev/null || echo "WARNING: uvicorn not found"
+
           sudo systemctl restart ds01-api ds01-runner
+
+          # Check status immediately after restart
+          sleep 1
+          sudo systemctl status ds01-api --no-pager 2>/dev/null || true
+
           for i in $(seq 1 15); do
             curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0
             sleep 1
           done
           echo "API not ready after 15s"
-          journalctl -u ds01-api --no-pager -n 20 2>/dev/null || true
+          sudo systemctl status ds01-api --no-pager 2>/dev/null || true
+          sudo journalctl -u ds01-api --no-pager -n 30 --since "5 minutes ago" 2>/dev/null || true
           exit 1
 
       - name: Integration tests
