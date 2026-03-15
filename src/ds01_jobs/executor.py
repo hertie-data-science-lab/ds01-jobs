@@ -100,8 +100,9 @@ class JobExecutor:
         workspace = self.settings.workspace_root / job_id
         workspace.mkdir(parents=True, exist_ok=True)
 
-        # Ensure workspace root is traversable for sudo -u Docker builds
+        # Ensure workspace dirs are traversable for sudo -u Docker builds
         if unix_username:
+            self.settings.workspace_root.parent.chmod(0o755)
             self.settings.workspace_root.chmod(0o755)
 
         try:
