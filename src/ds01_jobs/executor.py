@@ -122,9 +122,9 @@ class JobExecutor:
 
             await self._clone(job_id, repo_url, branch, workspace, db_path)
 
-            # Make workspace readable by unix_username for Docker build context
+            # Make workspace accessible by unix_username for Docker build/cp
             if unix_username:
-                proc = await asyncio.create_subprocess_exec("chmod", "-R", "a+rX", str(workspace))
+                proc = await asyncio.create_subprocess_exec("chmod", "-R", "a+rwX", str(workspace))
                 await proc.wait()
 
             await self._build(job_id, workspace, db_path, unix_username)
