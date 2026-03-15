@@ -17,16 +17,14 @@ jobs:
       - name: Unit tests
         run: uv run pytest -m 'not integration' --tb=short
 
-      - name: Fix venv permissions and restart services
+      - name: Fix permissions and restart services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
 
-          sudo systemctl restart ds01-api ds01-runner
+          # ds01 service user needs to traverse $HOME to reach anaconda3 Python
+          chmod o+x /home/datasciencelab
 
-          # Check status immediately (no sudo needed for read-only status)
-          sleep 2
-          systemctl status ds01-api --no-pager || true
-          systemctl status ds01-runner --no-pager || true
+          sudo systemctl restart ds01-api ds01-runner
 
           for i in $(seq 1 20); do
             curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0
@@ -34,8 +32,6 @@ jobs:
           done
           echo "API not ready after 20s"
           systemctl status ds01-api --no-pager || true
-          journalctl --user-unit=ds01-api --no-pager -n 30 || true
-          journalctl -u ds01-api --no-pager -n 30 || true
           exit 1
 
       - name: Integration tests
