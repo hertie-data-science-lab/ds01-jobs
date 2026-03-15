@@ -26,14 +26,13 @@ jobs:
 
           sudo systemctl restart ds01-api ds01-runner
 
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8765/health >/dev/null 2>&1 && exit 0
+          for i in $(seq 1 20); do
+            python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')" 2>/dev/null && exit 0
             sleep 1
           done
-          echo "API not ready after 30s"
-          curl -v http://127.0.0.1:8765/health 2>&1 || true
+          echo "API not ready after 20s"
+          python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8765/health').read())" || true
           systemctl status ds01-api --no-pager || true
-          ss -tlnp | grep 8765 || echo "Port 8765 not listening"
           exit 1
 
       - name: Integration tests
