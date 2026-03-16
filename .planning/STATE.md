@@ -1,8 +1,22 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+stopped_at: "Completed 07.1-01-PLAN.md"
+last_updated: "2026-03-16T12:07:00Z"
+progress:
+  total_phases: 10
+  completed_phases: 7
+  total_plans: 15
+  completed_plans: 15
+---
+
 # Project State
 
 ## Current Phase
 
-Phase 07.1 - Documentation (pending start)
+Phase 07.1 - Documentation (plan 01/3 complete)
 
 ## Decisions
 
@@ -10,6 +24,7 @@ Phase 07.1 - Documentation (pending start)
 - Graceful fallback when unix_username is empty - docker commands run without sudo prefix
 - Resource limits subprocess has 5s timeout with empty-list fallback on failure
 - --label ds01.interface=api only on docker run, not docker build
+- Used .hb_learning/ (dot-prefix) as preservation target - already in .git/info/exclude with existing content
 
 ## Roadmap Evolution
 
@@ -19,11 +34,12 @@ Phase 07.1 - Documentation (pending start)
 
 ## Last Session
 
-- **Stopped at:** Completed 06.1-02-PLAN.md (executor sudo-u, resource limits, interface label, runner unix_username propagation)
-- **Timestamp:** 2026-03-12T13:18:46Z
+- **Stopped at:** Completed 07.1-01-PLAN.md
+- **Timestamp:** 2026-03-16T12:07:00Z
 
 ## Performance Metrics
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 06.1 | 02 | 7min | 2 | 4 |
+| 07.1 | 01 | 8min | 2 | 3 |
