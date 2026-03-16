@@ -220,7 +220,7 @@ async def test_check_rate_limits_passes(tmp_path: Path) -> None:
     assert concurrent_count == 1
     assert concurrent_limit == 3
     assert daily_count == 1
-    assert daily_limit == 20
+    assert daily_limit == 10
 
 
 @pytest.mark.asyncio
