@@ -204,6 +204,9 @@ def test_configure_invalid_key(integration_env, tmp_path: Path, monkeypatch: pyt
     """configure with invalid key prints error and exits 1."""
     creds_path = tmp_path / "creds" / "credentials"
     monkeypatch.setattr("ds01_jobs.submit.CREDENTIALS_PATH", creds_path)
+    monkeypatch.setattr("ds01_jobs.client.CREDENTIALS_PATH", creds_path)
+    # Unset DS01_API_KEY so configure falls through to the prompt input
+    monkeypatch.delenv("DS01_API_KEY", raising=False)
 
     result = runner.invoke(submit_app, ["configure"], input="invalid_key_abc\n")
     assert result.exit_code == 1
@@ -315,7 +318,12 @@ def test_cancel_job(integration_env):
 def test_no_credentials_error(monkeypatch: pytest.MonkeyPatch):
     """Commands without credentials print helpful error."""
     monkeypatch.delenv("DS01_API_KEY", raising=False)
-    # Ensure credentials file doesn't exist
+    # Ensure credentials file doesn't exist - patch in both client (where
+    # resolve_api_key reads it) and submit (where configure writes it)
+    monkeypatch.setattr(
+        "ds01_jobs.client.CREDENTIALS_PATH",
+        Path("/nonexistent/path/credentials"),
+    )
     monkeypatch.setattr(
         "ds01_jobs.submit.CREDENTIALS_PATH",
         Path("/nonexistent/path/credentials"),
