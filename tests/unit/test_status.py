@@ -576,7 +576,7 @@ async def test_get_quota_defaults(mock_group: AsyncMock, tmp_path: Path) -> None
     data = resp.json()
     assert data["group"] == "default"
     assert data["concurrent"]["limit"] == 3
-    assert data["daily"]["limit"] == 10
+    assert data["daily"]["limit"] == 20
     assert data["max_result_size_mb"] == 1024
     assert data["username"] == "testuser"
 

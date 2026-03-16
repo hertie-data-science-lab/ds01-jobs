@@ -272,14 +272,14 @@ async def test_concurrent_rate_limit_enforced(mock_ssrf, mock_verify, client, au
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
 @patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
 async def test_daily_rate_limit_enforced(mock_ssrf, mock_verify, client, auth_key, db_path):
-    """Seeding 10 completed jobs (default daily limit), next submit returns 429."""
+    """Seeding 20 completed jobs (default daily limit), next submit returns 429."""
     raw_key = auth_key[0]
 
-    # Seed 10 completed jobs directly in DB
-    for _ in range(10):
+    # Seed 20 completed jobs directly in DB
+    for _ in range(20):
         await insert_job(db_path, username="testuser", status="succeeded")
 
-    # 11th submission should hit daily limit
+    # 21st submission should hit daily limit
     body = {"repo_url": "https://github.com/testorg/myrepo"}
     body_bytes = json.dumps(body).encode()
     headers = build_signed_headers(raw_key, "POST", "/api/v1/jobs", body=body_bytes)

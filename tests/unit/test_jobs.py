@@ -306,8 +306,8 @@ async def test_submit_job_daily_limit_exceeded(
     raw_key, key_id, key_hash = _create_test_key()
     await _seed_key(db_path, key_id, key_hash)
 
-    # Insert 10 completed jobs today (default daily limit)
-    for _ in range(10):
+    # Insert 20 completed jobs today (default daily limit)
+    for _ in range(20):
         await _insert_job(db_path, status="succeeded")
 
     app = _make_app(db_path)
