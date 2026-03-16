@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # Rate limiting defaults
     default_concurrent_limit: int = 3
-    default_daily_limit: int = 10
+    default_daily_limit: int = 20
 
     # Result size limit
     default_max_result_size_mb: int = 1024
