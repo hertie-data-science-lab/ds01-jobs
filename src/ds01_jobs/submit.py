@@ -8,6 +8,7 @@ import io
 import json
 import tarfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -46,10 +47,12 @@ def _get_client() -> DS01Client:
     return DS01Client(api_key=api_key, base_url=resolve_api_url())
 
 
-def _api_call(func: object, *args: object, **kwargs: object) -> httpx.Response:
+def _api_call(
+    func: Callable[..., httpx.Response], *args: object, **kwargs: object
+) -> httpx.Response:
     """Wrap an API call with ConnectError handling."""
     try:
-        return func(*args, **kwargs)  # type: ignore[operator]
+        return func(*args, **kwargs)
     except httpx.ConnectError:
         typer.echo(f"Error: Could not connect to server at {resolve_api_url()}", err=True)
         raise typer.Exit(code=1)
