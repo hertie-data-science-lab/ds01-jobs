@@ -58,7 +58,6 @@ runs:
       shell: bash
       env:
         DS01_API_KEY: ${{ inputs.api-key }}
-        DS01_API_URL: ${{ inputs.repo-url && '' }}
       run: |
         python "${{ github.action_path }}/entrypoint.py" \
           --repo-url "${{ inputs.repo-url }}" \

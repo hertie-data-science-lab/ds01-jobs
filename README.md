@@ -78,7 +78,7 @@ Your repository needs:
 The [ds01-test-job](ds01-test-job/) directory in this repo is a minimal working example:
 
 ```dockerfile
-FROM nvidia/cuda:12.6.3-base-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:12.6.3-base-ubuntu24.04
 
 RUN mkdir -p /output
 
