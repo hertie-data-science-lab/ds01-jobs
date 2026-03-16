@@ -254,9 +254,9 @@ def test_key_create_setup_instructions(tmp_db, mock_github_member, mock_unix_use
     result = runner.invoke(app, ["key-create", "researcher1", "researcher1_unix"])
     assert result.exit_code == 0
     assert "Setup instructions" in result.output
-    assert "pip install ds01-jobs" in result.output
+    assert "pip install git+" in result.output
     assert "ds01-submit configure" in result.output
-    assert "DS01_API_KEY=" in result.output
+    assert "API key: ds01_" in result.output
 
 
 # --- key-list tests ---
@@ -407,10 +407,12 @@ def test_key_rotate_old_hash_changes(tmp_db, mock_github_member, mock_unix_user_
     result2 = runner.invoke(app, ["key-rotate", "researcher1", "--yes", "--json"])
     new_key = json.loads(result2.output)["key"]
 
-    # Read hash from DB
+    # Read hash from DB (active row only - rotation revokes old and inserts new)
     conn = sqlite3.connect(tmp_db)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("SELECT key_hash FROM api_keys WHERE username = 'researcher1'")
+    cursor = conn.execute(
+        "SELECT key_hash FROM api_keys WHERE username = 'researcher1' AND revoked = 0"
+    )
     row = cursor.fetchone()
     conn.close()
 
