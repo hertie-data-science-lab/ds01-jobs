@@ -46,6 +46,15 @@ def _get_client() -> DS01Client:
     return DS01Client(api_key=api_key, base_url=resolve_api_url())
 
 
+def _api_call(func: object, *args: object, **kwargs: object) -> httpx.Response:
+    """Wrap an API call with ConnectError handling."""
+    try:
+        return func(*args, **kwargs)  # type: ignore[operator]
+    except httpx.ConnectError:
+        typer.echo(f"Error: Could not connect to server at {resolve_api_url()}", err=True)
+        raise typer.Exit(code=1)
+
+
 def _handle_error(resp: httpx.Response) -> None:
     """Print a structured error message from an API error response and exit."""
     try:
@@ -114,7 +123,7 @@ def run_job(
         if dockerfile is not None:
             body["dockerfile_content"] = dockerfile.read_text()
 
-        resp = client.post("/api/v1/jobs", json=body)
+        resp = _api_call(client.post, "/api/v1/jobs", json=body)
         if resp.status_code != 202:
             _handle_error(resp)
 
@@ -142,7 +151,7 @@ def status(
         max_backoff = 30.0
 
         while True:
-            resp = client.get(f"/api/v1/jobs/{job_id}")
+            resp = _api_call(client.get, f"/api/v1/jobs/{job_id}")
             if resp.status_code != 200:
                 _handle_error(resp)
 
@@ -256,7 +265,7 @@ def list_jobs(
     """List submitted jobs."""
     client = _get_client()
     try:
-        resp = client.get(f"/api/v1/jobs?limit={limit}&offset={offset}")
+        resp = _api_call(client.get, f"/api/v1/jobs?limit={limit}&offset={offset}")
         if resp.status_code != 200:
             _handle_error(resp)
 
@@ -304,7 +313,7 @@ def cancel(
     """Cancel a running job."""
     client = _get_client()
     try:
-        resp = client.post(f"/api/v1/jobs/{job_id}/cancel")
+        resp = _api_call(client.post, f"/api/v1/jobs/{job_id}/cancel")
         if resp.status_code not in (200, 202):
             _handle_error(resp)
 
