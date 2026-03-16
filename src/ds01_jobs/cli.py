@@ -64,8 +64,9 @@ def _print_key_result(
         typer.echo("")
         typer.echo("Setup instructions (send to researcher):")
         typer.echo("\u2500" * 41)
-        typer.echo("pip install ds01-jobs")
-        typer.echo(f"DS01_API_KEY={raw_key} ds01-submit configure")
+        typer.echo("pip install git+https://github.com/hertie-data-science-lab/ds01-jobs.git")
+        typer.echo("ds01-submit configure")
+        typer.echo(f"  API key: {raw_key}")
         typer.echo("\u2500" * 41)
 
 
@@ -295,6 +296,7 @@ def key_list(
 
         keys.append(
             {
+                "key_id": row["key_id"],
                 "username": row["username"],
                 "unix_username": row["unix_username"],
                 "status": status,
@@ -312,28 +314,25 @@ def key_list(
             return
 
         # Aligned columnar output
-        headers = ["USERNAME", "UNIX USER", "STATUS", "CREATED", "EXPIRES", "LAST USED"]
+        headers = ["KEY ID", "USERNAME", "UNIX USER", "STATUS", "CREATED", "EXPIRES", "LAST USED"]
+        fields = [
+            "key_id",
+            "username",
+            "unix_username",
+            "status",
+            "created",
+            "expires",
+            "last_used",
+        ]
         col_widths = [
-            max(len(headers[0]), *(len(k["username"]) for k in keys)),
-            max(len(headers[1]), *(len(k["unix_username"]) for k in keys)),
-            max(len(headers[2]), *(len(k["status"]) for k in keys)),
-            max(len(headers[3]), *(len(k["created"]) for k in keys)),
-            max(len(headers[4]), *(len(k["expires"]) for k in keys)),
-            max(len(headers[5]), *(len(k["last_used"]) for k in keys)),
+            max(len(h), *(len(k[f]) for k in keys)) for h, f in zip(headers, fields, strict=True)
         ]
 
         header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths, strict=True))
         typer.echo(header_line)
 
         for key in keys:
-            vals = [
-                key["username"],
-                key["unix_username"],
-                key["status"],
-                key["created"],
-                key["expires"],
-                key["last_used"],
-            ]
+            vals = [key[f] for f in fields]
             line = "  ".join(v.ljust(w) for v, w in zip(vals, col_widths, strict=True))
             typer.echo(line)
 
@@ -404,11 +403,23 @@ def key_rotate(
         now = datetime.now(UTC)
         expires_dt = now + timedelta(days=days)
 
-        # Atomic rotation: update the existing row with new key data
+        # Atomic rotation: revoke old key, insert new one
         conn.execute(
-            "UPDATE api_keys SET key_id = ?, key_hash = ?, created_at = ?, "
-            "expires_at = ?, revoked = 0, last_used_at = NULL WHERE username = ?",
-            (key_id, key_hash, now.isoformat(), expires_dt.isoformat(), username),
+            "UPDATE api_keys SET revoked = 1 WHERE id = ?",
+            (active["id"],),
+        )
+        conn.execute(
+            "INSERT INTO api_keys "
+            "(username, unix_username, key_id, key_hash, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                username,
+                active["unix_username"],
+                key_id,
+                key_hash,
+                now.isoformat(),
+                expires_dt.isoformat(),
+            ),
         )
         conn.commit()
 
