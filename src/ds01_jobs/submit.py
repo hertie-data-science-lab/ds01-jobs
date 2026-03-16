@@ -64,7 +64,7 @@ def _handle_error(resp: httpx.Response) -> None:
 @app.command()
 def configure() -> None:
     """Set up API credentials for ds01-submit."""
-    api_key = typer.prompt("DS01 API key")
+    api_key = resolve_api_key() or typer.prompt("DS01 API key")
     api_url = resolve_api_url()
 
     client = DS01Client(api_key=api_key, base_url=api_url)
@@ -73,6 +73,9 @@ def configure() -> None:
         resp.raise_for_status()
     except httpx.HTTPStatusError:
         typer.echo("Error: Invalid or expired API key", err=True)
+        raise typer.Exit(code=1)
+    except httpx.ConnectError:
+        typer.echo(f"Error: Could not connect to server at {api_url}", err=True)
         raise typer.Exit(code=1)
     finally:
         client.close()

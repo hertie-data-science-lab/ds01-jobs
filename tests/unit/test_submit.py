@@ -49,6 +49,7 @@ def test_configure_success(MockClient, tmp_path, monkeypatch):
     monkeypatch.setenv("DS01_API_URL", "http://localhost:8765")
     creds_path = tmp_path / "credentials"
     monkeypatch.setattr("ds01_jobs.submit.CREDENTIALS_PATH", creds_path)
+    monkeypatch.setattr("ds01_jobs.client.CREDENTIALS_PATH", creds_path)
 
     mock_client = MagicMock()
     mock_client.get.return_value = _mock_response(
