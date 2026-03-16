@@ -140,10 +140,23 @@ class JobRunner:
 
 def cli_main() -> None:
     """CLI entry point for ds01-job-runner."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="ds01-job-runner",
+        description="DS01 job runner - polls for queued jobs and executes them via Docker",
+    )
+    parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     settings = Settings()
+    logger.info(
+        "ds01-job-runner starting (db=%s, poll=%.0fs)",
+        settings.db_path,
+        settings.runner_poll_interval,
+    )
     runner = JobRunner(settings)
     asyncio.run(runner.run())
