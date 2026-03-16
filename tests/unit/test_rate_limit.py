@@ -54,14 +54,14 @@ async def _insert_job(
 
 @pytest.mark.asyncio
 async def test_get_user_limits_defaults() -> None:
-    """No resource-limits.yaml returns settings defaults (3, 10)."""
+    """No resource-limits.yaml returns settings defaults (3, 20)."""
     settings = _test_settings(resource_limits_path=Path("/nonexistent/path.yaml"))
     with patch(
         "ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default"
     ):
         concurrent, daily = await get_user_limits("someuser", settings)
     assert concurrent == 3
-    assert daily == 10
+    assert daily == 20
 
 
 @pytest.mark.asyncio
@@ -107,7 +107,7 @@ async def test_get_user_limits_unknown_group(tmp_path: Path) -> None:
     ):
         concurrent, daily = await get_user_limits("unknown_unix", settings)
     assert concurrent == 3
-    assert daily == 10
+    assert daily == 20
 
 
 @pytest.mark.asyncio
@@ -338,7 +338,7 @@ async def test_get_user_quota_info_defaults() -> None:
         group, concurrent, daily, max_result_mb = await get_user_quota_info("someuser", settings)
     assert group == "default"
     assert concurrent == 3
-    assert daily == 10
+    assert daily == 20
     assert max_result_mb == 1024
 
 

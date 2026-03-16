@@ -11,9 +11,9 @@ ds01-submit run https://github.com/hertie-data-science-lab/ds01-test-job --gpus 
 ### 1. Install the CLI
 
 ```bash
-pip install ds01-jobs
+pip install git+https://github.com/hertie-data-science-lab/ds01-jobs.git
 # or with uv:
-uv tool install ds01-jobs
+uv tool install git+https://github.com/hertie-data-science-lab/ds01-jobs.git
 ```
 
 ### 2. Configure your API key

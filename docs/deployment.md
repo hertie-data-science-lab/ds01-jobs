@@ -177,7 +177,7 @@ systemd reads it before dropping privileges to the `ds01` user.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DS01_JOBS_DEFAULT_CONCURRENT_LIMIT` | `3` | Per-user concurrent job limit (override via resource-limits.yaml) |
-| `DS01_JOBS_DEFAULT_DAILY_LIMIT` | `10` | Per-user daily submission limit (override via resource-limits.yaml) |
+| `DS01_JOBS_DEFAULT_DAILY_LIMIT` | `20` | Per-user daily submission limit (override via resource-limits.yaml) |
 | `DS01_JOBS_DEFAULT_MAX_RESULT_SIZE_MB` | `1024` | Maximum downloadable result archive size (MB) |
 
 ### Job execution timeouts
@@ -204,7 +204,7 @@ only if your deployment differs from the defaults.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DS01_JOBS_ALLOWED_GITHUB_ORGS` | _(empty - all orgs allowed)_ | Restrict job repo URLs to specific GitHub orgs (comma-separated) |
-| `DS01_JOBS_ALLOWED_BASE_REGISTRIES` | See config.py | Docker registry prefixes permitted in Dockerfiles |
+| `DS01_JOBS_ALLOWED_BASE_REGISTRIES` | `docker.io/library/`, `nvcr.io/nvidia/`, `ghcr.io/astral-sh/`, `docker.io/pytorch/`, `docker.io/tensorflow/`, `docker.io/huggingface/` | Docker registry prefixes permitted in Dockerfiles (comma-separated) |
 | `DS01_JOBS_BLOCKED_ENV_KEYS` | `LD_PRELOAD,LD_LIBRARY_PATH,LD_AUDIT` | ENV keys that cause Dockerfile scan errors |
 | `DS01_JOBS_WARNING_ENV_KEYS` | `LD_DEBUG,PYTHONPATH` | ENV keys that cause Dockerfile scan warnings |
 
