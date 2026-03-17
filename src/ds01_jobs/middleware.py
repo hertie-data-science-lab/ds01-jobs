@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
-from ds01_jobs.models import RateLimitResponse
+from ds01_jobs.models import RateLimitErrorResponse
 
 
 def _get_api_key_identifier(request: Request) -> str:
@@ -28,14 +28,20 @@ limiter = Limiter(key_func=_get_api_key_identifier, default_limits=["60/minute"]
 
 
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    """Custom 429 handler returning structured JSON body."""
+    """Custom 429 handler returning structured JSON body.
+
+    Uses the same {detail: {error: ...}} shape as per-user rate limits
+    so clients see a consistent 429 format.
+    """
+    body = RateLimitErrorResponse(
+        limit_type="global",
+        message="Global rate limit exceeded (60/minute)",
+        limit=60,
+        current=60,
+        retry_after=60,
+    )
     return JSONResponse(
         status_code=429,
-        content=RateLimitResponse(
-            retry_after_seconds=60,
-            limit_type="global",
-            current_count=60,
-            max_allowed=60,
-        ).model_dump(),
+        content={"detail": {"error": body.model_dump()}},
         headers={"Retry-After": "60"},
     )
