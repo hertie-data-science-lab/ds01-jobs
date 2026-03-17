@@ -23,12 +23,6 @@ class RateLimitResponse(BaseModel):
     max_allowed: int
 
 
-class AuthErrorResponse(BaseModel):
-    """Response schema for 401 authentication errors."""
-
-    detail: str = "Authentication failed"
-
-
 # --- Job submission models ---
 
 
@@ -83,15 +77,6 @@ class RateLimitErrorResponse(BaseModel):
     limit: int
     current: int
     retry_after: int | None
-
-
-class ScanViolationModel(BaseModel):
-    """Pydantic model for a single Dockerfile scan violation."""
-
-    line: int
-    severity: str
-    rule: str
-    message: str
 
 
 # --- Status and results models ---

@@ -17,6 +17,7 @@ from ds01_jobs.database import init_db
 from ds01_jobs.health import router as health_router
 from ds01_jobs.jobs import router as jobs_router
 from ds01_jobs.middleware import limiter, rate_limit_handler
+from ds01_jobs.models import APIError, ErrorDetail, ErrorResponse
 
 
 @asynccontextmanager
@@ -28,27 +29,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Return Stripe-like structured 422 for validation errors."""
-    errors = []
-    for err in exc.errors():
-        # Build field path, skipping the "body" prefix that Pydantic adds
-        field = ".".join(str(loc) for loc in err.get("loc", []) if loc != "body")
-        errors.append(
-            {
-                "field": field or "unknown",
-                "code": err.get("type", "validation_error"),
-                "message": err.get("msg", "Validation failed"),
-            }
+    errors = [
+        ErrorDetail(
+            field=".".join(str(loc) for loc in err.get("loc", []) if loc != "body") or "unknown",
+            code=err.get("type", "validation_error"),
+            message=err.get("msg", "Validation failed"),
         )
-    return JSONResponse(
-        status_code=422,
-        content={
-            "error": {
-                "type": "validation_error",
-                "message": "Request validation failed",
-                "errors": errors,
-            }
-        },
+        for err in exc.errors()
+    ]
+    body = APIError(
+        error=ErrorResponse(
+            type="validation_error", message="Request validation failed", errors=errors
+        )
     )
+    return JSONResponse(status_code=422, content=body.model_dump())
 
 
 def create_app() -> FastAPI:

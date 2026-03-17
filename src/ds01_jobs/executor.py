@@ -71,7 +71,7 @@ class JobExecutor:
                 return []
             args = stdout.decode().strip().split()
             return [a for a in args if not a.startswith("--cgroup-parent=")]
-        except (TimeoutError, FileNotFoundError, OSError) as exc:
+        except (asyncio.TimeoutError, FileNotFoundError, OSError) as exc:
             logger.warning("get_resource_limits.py error for %s: %s", unix_username, exc)
             return []
 
