@@ -436,3 +436,37 @@ async def test_submit_job_repo_not_found(
     assert resp.status_code == 422
     data = resp.json()
     assert data["error"]["errors"][0]["code"] == "repo_not_found"
+
+
+@pytest.mark.asyncio
+@patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
+@patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
+@patch("ds01_jobs.jobs.check_ssrf", new_callable=AsyncMock)
+@patch("ds01_jobs.jobs.get_gpu_count", new_callable=AsyncMock, return_value=4)
+async def test_submit_job_gpu_count_exceeds_total(
+    mock_gpu: AsyncMock,
+    mock_ssrf: AsyncMock,
+    mock_verify: AsyncMock,
+    mock_group: AsyncMock,
+    tmp_path: Path,
+) -> None:
+    """Requesting more GPUs than available returns 422 with exceeds_total."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+
+    raw_key, key_id, key_hash = _create_test_key()
+    await _seed_key(db_path, key_id, key_hash)
+
+    app = _make_app(db_path)
+    body = {"repo_url": "https://github.com/testorg/myrepo", "gpu_count": 8}
+    headers = _build_headers(raw_key, body)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/jobs", content=json.dumps(body), headers=headers)
+
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error"]["type"] == "validation_error"
+    assert data["error"]["errors"][0]["field"] == "gpu_count"
+    assert data["error"]["errors"][0]["code"] == "exceeds_total"

@@ -27,7 +27,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ds01_jobs.auth import get_current_user
 from ds01_jobs.config import Settings
 from ds01_jobs.database import get_db
+from ds01_jobs.gpu import get_gpu_count
 from ds01_jobs.models import (
+    APIError,
+    ErrorDetail,
+    ErrorResponse,
     JobDetailResponse,
     JobError,
     JobListResponse,
@@ -39,7 +43,12 @@ from ds01_jobs.models import (
     QuotaResponse,
     UsageCount,
 )
-from ds01_jobs.rate_limit import check_rate_limits, get_user_job_counts, get_user_quota_info
+from ds01_jobs.rate_limit import (
+    ACTIVE_STATUSES,
+    check_rate_limits,
+    get_user_job_counts,
+    get_user_quota_info,
+)
 from ds01_jobs.scanner import scan_dockerfile
 from ds01_jobs.url_validation import check_ssrf, validate_repo_url_format, verify_repo_accessible
 
@@ -55,6 +64,16 @@ def _get_settings() -> Settings:
 
 
 MAX_LOG_BYTES = 1_048_576  # 1 MB per phase
+
+
+def _validation_error_response(
+    error_type: str, message: str, errors: list[ErrorDetail]
+) -> JSONResponse:
+    """Build a structured 422 JSONResponse using the standard error models."""
+    body = APIError(error=ErrorResponse(type=error_type, message=message, errors=errors))
+    return JSONResponse(status_code=422, content=body.model_dump())
+
+
 DEFAULT_PAGE_LIMIT = 20
 MAX_PAGE_LIMIT = 100
 
@@ -102,21 +121,10 @@ async def submit_job(
     try:
         owner, repo = validate_repo_url_format(body.repo_url, settings.allowed_github_orgs)
     except ValueError as e:
-        return JSONResponse(  # type: ignore[return-value]
-            status_code=422,
-            content={
-                "error": {
-                    "type": "validation_error",
-                    "message": str(e),
-                    "errors": [
-                        {
-                            "field": "repo_url",
-                            "code": "invalid_url",
-                            "message": str(e),
-                        }
-                    ],
-                }
-            },
+        return _validation_error_response(  # type: ignore[return-value]
+            "validation_error",
+            str(e),
+            [ErrorDetail(field="repo_url", code="invalid_url", message=str(e))],
         )
 
     # 2. Rate limit check (raises 429 on failure)
@@ -124,7 +132,17 @@ async def submit_job(
         db, unix_username, username, settings
     )
 
-    # 3. SSRF check
+    # 3. GPU count validation
+    total_gpus = await get_gpu_count()
+    if total_gpus > 0 and body.gpu_count > total_gpus:
+        msg = f"Requested {body.gpu_count} GPUs but only {total_gpus} available on this server"
+        return _validation_error_response(  # type: ignore[return-value]
+            "validation_error",
+            msg,
+            [ErrorDetail(field="gpu_count", code="exceeds_total", message=msg)],
+        )
+
+    # 4. SSRF check
     try:
         await check_ssrf("github.com")
     except ValueError as e:
@@ -134,21 +152,10 @@ async def submit_job(
     try:
         await verify_repo_accessible(body.repo_url, settings.preflight_timeout_seconds)
     except ValueError as e:
-        return JSONResponse(  # type: ignore[return-value]
-            status_code=422,
-            content={
-                "error": {
-                    "type": "validation_error",
-                    "message": str(e),
-                    "errors": [
-                        {
-                            "field": "repo_url",
-                            "code": "repo_not_found",
-                            "message": str(e),
-                        }
-                    ],
-                }
-            },
+        return _validation_error_response(  # type: ignore[return-value]
+            "validation_error",
+            str(e),
+            [ErrorDetail(field="repo_url", code="repo_not_found", message=str(e))],
         )
 
     # 5. Dockerfile scan (if provided)
@@ -159,24 +166,17 @@ async def submit_job(
             settings.blocked_env_keys,
             settings.warning_env_keys,
         )
-        errors = [v for v in violations if v.severity == "error"]
-        if errors:
-            return JSONResponse(  # type: ignore[return-value]
-                status_code=422,
-                content={
-                    "error": {
-                        "type": "dockerfile_scan_error",
-                        "message": "Dockerfile scan found errors",
-                        "errors": [
-                            {
-                                "field": f"dockerfile_content:{v.line}",
-                                "code": v.rule,
-                                "message": v.message,
-                            }
-                            for v in errors
-                        ],
-                    }
-                },
+        scan_errors = [v for v in violations if v.severity == "error"]
+        if scan_errors:
+            return _validation_error_response(  # type: ignore[return-value]
+                "dockerfile_scan_error",
+                "Dockerfile scan found errors",
+                [
+                    ErrorDetail(
+                        field=f"dockerfile_content:{v.line}", code=v.rule, message=v.message
+                    )
+                    for v in scan_errors
+                ],
             )
 
     # 6. Generate job_id
@@ -235,9 +235,6 @@ async def submit_job(
         status_url=f"/api/v1/jobs/{job_id}",
         created_at=now_iso,
     )
-
-
-ACTIVE_STATUSES = ("queued", "cloning", "building", "running")
 
 
 @router.post("/jobs/{job_id}/cancel", status_code=200)

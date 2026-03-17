@@ -15,6 +15,7 @@ import yaml
 from fastapi import HTTPException
 
 from ds01_jobs.config import Settings
+from ds01_jobs.models import RateLimitErrorResponse
 
 logger = logging.getLogger(__name__)
 
@@ -52,28 +53,6 @@ async def _get_user_group(unix_username: str, bin_path: Path) -> str:
     except (asyncio.TimeoutError, FileNotFoundError, OSError) as exc:
         logger.warning("get_resource_limits.py --group error for %s: %s", unix_username, exc)
     return "default"
-
-
-async def get_user_limits(unix_username: str, settings: Settings) -> tuple[int, int]:
-    """Return (concurrent_limit, daily_limit) for a user based on their group.
-
-    Precedence (lowest to highest):
-    1. Settings defaults
-    2. resource-limits.yaml group limits (group resolved via subprocess)
-    """
-    concurrent = settings.default_concurrent_limit
-    daily = settings.default_daily_limit
-
-    group = await _get_user_group(unix_username, settings.get_resource_limits_bin)
-
-    data = load_resource_limits(settings.resource_limits_path)
-    groups = data.get("groups", {})
-    if group in groups:
-        group_cfg = groups[group]
-        concurrent = group_cfg.get("max_concurrent_jobs", concurrent)
-        daily = group_cfg.get("max_daily_submissions", daily)
-
-    return concurrent, daily
 
 
 async def get_user_quota_info(unix_username: str, settings: Settings) -> tuple[str, int, int, int]:
@@ -135,26 +114,19 @@ async def check_rate_limits(
 
     Returns (concurrent_count, concurrent_limit, daily_count, daily_limit) on success.
     """
-    concurrent_limit, daily_limit = await get_user_limits(unix_username, settings)
+    _, concurrent_limit, daily_limit, _ = await get_user_quota_info(unix_username, settings)
     concurrent_count, daily_count = await get_user_job_counts(db, username)
 
     # Check concurrent limit first
     if concurrent_count >= concurrent_limit:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "error": {
-                    "type": "rate_limit_error",
-                    "limit_type": "concurrent",
-                    "message": (
-                        f"Concurrent job limit reached ({concurrent_count}/{concurrent_limit})"
-                    ),
-                    "limit": concurrent_limit,
-                    "current": concurrent_count,
-                    "retry_after": None,
-                }
-            },
+        body = RateLimitErrorResponse(
+            limit_type="concurrent",
+            message=f"Concurrent job limit reached ({concurrent_count}/{concurrent_limit})",
+            limit=concurrent_limit,
+            current=concurrent_count,
+            retry_after=None,
         )
+        raise HTTPException(status_code=429, detail={"error": body.model_dump()})
 
     # Check daily limit
     if daily_count >= daily_limit:
@@ -165,19 +137,17 @@ async def check_rate_limits(
         )
         retry_after = int((midnight_tomorrow - now).total_seconds())
 
+        body = RateLimitErrorResponse(
+            limit_type="daily",
+            message=f"Daily submission limit reached ({daily_count}/{daily_limit})",
+            limit=daily_limit,
+            current=daily_count,
+            retry_after=retry_after,
+        )
         raise HTTPException(
             status_code=429,
             headers={"Retry-After": str(retry_after)},
-            detail={
-                "error": {
-                    "type": "rate_limit_error",
-                    "limit_type": "daily",
-                    "message": f"Daily submission limit reached ({daily_count}/{daily_limit})",
-                    "limit": daily_limit,
-                    "current": daily_count,
-                    "retry_after": retry_after,
-                }
-            },
+            detail={"error": body.model_dump()},
         )
 
     return concurrent_count, concurrent_limit, daily_count, daily_limit

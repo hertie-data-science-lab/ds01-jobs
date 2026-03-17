@@ -13,7 +13,6 @@ from ds01_jobs.rate_limit import (
     _get_user_group,
     check_rate_limits,
     get_user_job_counts,
-    get_user_limits,
     get_user_quota_info,
 )
 
@@ -53,49 +52,7 @@ async def _insert_job(
 
 
 @pytest.mark.asyncio
-async def test_get_user_limits_defaults() -> None:
-    """No resource-limits.yaml returns settings defaults (3, 20)."""
-    settings = _test_settings(resource_limits_path=Path("/nonexistent/path.yaml"))
-    with patch(
-        "ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default"
-    ):
-        concurrent, daily = await get_user_limits("someuser", settings)
-    assert concurrent == 3
-    assert daily == 20
-
-
-@pytest.mark.asyncio
-async def test_get_user_limits_from_group(tmp_path: Path) -> None:
-    """User resolved to student group gets group limits (2, 5)."""
-    yaml_path = tmp_path / "resource-limits.yaml"
-    yaml_path.write_text(
-        "groups:\n"
-        "  student:\n"
-        "    max_concurrent_jobs: 2\n"
-        "    max_daily_submissions: 5\n"
-        "  researcher:\n"
-        "    max_concurrent_jobs: 5\n"
-        "    max_daily_submissions: 20\n"
-    )
-    settings = _test_settings(resource_limits_path=yaml_path)
-
-    with patch(
-        "ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="student"
-    ):
-        concurrent, daily = await get_user_limits("bob_unix", settings)
-    assert concurrent == 2
-    assert daily == 5
-
-    with patch(
-        "ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="researcher"
-    ):
-        concurrent, daily = await get_user_limits("alice_unix", settings)
-    assert concurrent == 5
-    assert daily == 20
-
-
-@pytest.mark.asyncio
-async def test_get_user_limits_unknown_group(tmp_path: Path) -> None:
+async def test_get_user_quota_info_unknown_group(tmp_path: Path) -> None:
     """User with group not in YAML falls back to defaults."""
     yaml_path = tmp_path / "resource-limits.yaml"
     yaml_path.write_text(
@@ -105,9 +62,13 @@ async def test_get_user_limits_unknown_group(tmp_path: Path) -> None:
     with patch(
         "ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default"
     ):
-        concurrent, daily = await get_user_limits("unknown_unix", settings)
+        group, concurrent, daily, max_result_mb = await get_user_quota_info(
+            "unknown_unix", settings
+        )
+    assert group == "default"
     assert concurrent == 3
     assert daily == 20
+    assert max_result_mb == 1024
 
 
 @pytest.mark.asyncio
