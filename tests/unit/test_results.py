@@ -1,81 +1,18 @@
 """Tests for GET /api/v1/jobs/{job_id}/results endpoint."""
 
-import hashlib
-import hmac
 import io
-import secrets
 import tarfile
-import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
-import bcrypt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ds01_jobs.database import get_db, init_db
 from ds01_jobs.jobs import _get_settings
-
-
-def _create_test_key() -> tuple[str, str, str]:
-    """Generate a test API key, key_id, and bcrypt hash."""
-    random_part = secrets.token_urlsafe(32)
-    raw_key = f"ds01_{random_part}"
-    key_id = random_part[:8]
-    key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
-    return raw_key, key_id, key_hash
-
-
-def _sign_request(
-    raw_key: str,
-    method: str,
-    path: str,
-    body: bytes = b"",
-    timestamp: float | None = None,
-    nonce: str | None = None,
-) -> dict[str, str]:
-    """Build HMAC signing headers for a test request."""
-    ts = str(timestamp if timestamp is not None else time.time())
-    n = nonce or secrets.token_urlsafe(16)
-    body_hash = hashlib.sha256(body).hexdigest()
-    canonical = f"{method}\n{path}\n{ts}\n{n}\n{body_hash}"
-    sig = hmac.new(raw_key.encode(), canonical.encode(), hashlib.sha256).hexdigest()
-    return {
-        "X-Timestamp": ts,
-        "X-Nonce": n,
-        "X-Signature": sig,
-    }
-
-
-async def _seed_key(
-    db_path: Path,
-    key_id: str,
-    key_hash: str,
-    username: str = "testuser",
-    expires_at: str | None = None,
-) -> None:
-    """Insert a test API key into the database."""
-    if expires_at is None:
-        expires_at = (datetime.now(UTC) + timedelta(days=90)).isoformat()
-
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "INSERT INTO api_keys "
-            "(username, unix_username, key_id, key_hash, created_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                username,
-                f"{username}_unix",
-                key_id,
-                key_hash,
-                datetime.now(UTC).isoformat(),
-                expires_at,
-                0,
-            ),
-        )
-        await db.commit()
+from tests.helpers import create_test_key, seed_key, sign_request
 
 
 async def _insert_job(
@@ -137,7 +74,7 @@ def _make_app(db_path: Path, workspace_root: Path | None = None):
 
 def _build_get_headers(raw_key: str, path: str) -> dict[str, str]:
     """Build auth + signing headers for a GET request."""
-    headers = _sign_request(raw_key, "GET", path, body=b"")
+    headers = sign_request(raw_key, "GET", path, body=b"")
     headers["Authorization"] = f"Bearer {raw_key}"
     return headers
 
@@ -148,8 +85,8 @@ async def test_download_results_success(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="succeeded")
 
     # Create workspace results directory with files
@@ -184,8 +121,8 @@ async def test_download_results_no_results_dir(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="succeeded")
 
     workspace_root = tmp_path / "workspaces"
@@ -210,8 +147,8 @@ async def test_download_results_empty_results_dir(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="succeeded")
 
     workspace_root = tmp_path / "workspaces"
@@ -242,8 +179,8 @@ async def test_download_results_size_exceeded(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="succeeded")
 
     workspace_root = tmp_path / "workspaces"
@@ -284,8 +221,8 @@ async def test_download_results_not_found(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     fake_id = str(uuid.uuid4())
     app = _make_app(db_path)
@@ -306,12 +243,12 @@ async def test_download_results_other_users_job(tmp_path: Path) -> None:
     await init_db(db_path=db_path)
 
     # Alice's key
-    alice_key, alice_kid, alice_hash = _create_test_key()
-    await _seed_key(db_path, alice_kid, alice_hash, username="alice")
+    alice_key, alice_kid, alice_hash = create_test_key()
+    await seed_key(db_path, alice_kid, alice_hash, username="alice")
 
     # Bob's key
-    bob_key, bob_kid, bob_hash = _create_test_key()
-    await _seed_key(db_path, bob_kid, bob_hash, username="bob")
+    bob_key, bob_kid, bob_hash = create_test_key()
+    await seed_key(db_path, bob_kid, bob_hash, username="bob")
 
     # Alice's job
     job_id = await _insert_job(db_path, username="alice", status="succeeded")
@@ -334,8 +271,8 @@ async def test_download_results_running_job(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="running")
 
     app = _make_app(db_path)
@@ -356,8 +293,8 @@ async def test_download_results_failed_job(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="failed")
 
     app = _make_app(db_path)

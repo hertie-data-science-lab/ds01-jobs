@@ -1,81 +1,18 @@
 """Tests for GET endpoints: status detail, logs, listing, and quota."""
 
-import hashlib
-import hmac
 import json
-import secrets
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
-import bcrypt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ds01_jobs.database import get_db, init_db
 from ds01_jobs.jobs import _get_settings
-
-
-def _create_test_key() -> tuple[str, str, str]:
-    """Generate a test API key, key_id, and bcrypt hash."""
-    random_part = secrets.token_urlsafe(32)
-    raw_key = f"ds01_{random_part}"
-    key_id = random_part[:8]
-    key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
-    return raw_key, key_id, key_hash
-
-
-def _sign_request(
-    raw_key: str,
-    method: str,
-    path: str,
-    body: bytes = b"",
-    timestamp: float | None = None,
-    nonce: str | None = None,
-) -> dict[str, str]:
-    """Build HMAC signing headers for a test request."""
-    ts = str(timestamp if timestamp is not None else time.time())
-    n = nonce or secrets.token_urlsafe(16)
-    body_hash = hashlib.sha256(body).hexdigest()
-    canonical = f"{method}\n{path}\n{ts}\n{n}\n{body_hash}"
-    sig = hmac.new(raw_key.encode(), canonical.encode(), hashlib.sha256).hexdigest()
-    return {
-        "X-Timestamp": ts,
-        "X-Nonce": n,
-        "X-Signature": sig,
-    }
-
-
-async def _seed_key(
-    db_path: Path,
-    key_id: str,
-    key_hash: str,
-    username: str = "testuser",
-    expires_at: str | None = None,
-) -> None:
-    """Insert a test API key into the database."""
-    if expires_at is None:
-        expires_at = (datetime.now(UTC) + timedelta(days=90)).isoformat()
-
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "INSERT INTO api_keys "
-            "(username, unix_username, key_id, key_hash, created_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                username,
-                f"{username}_unix",
-                key_id,
-                key_hash,
-                datetime.now(UTC).isoformat(),
-                expires_at,
-                0,
-            ),
-        )
-        await db.commit()
+from tests.helpers import create_test_key, seed_key, sign_request
 
 
 async def _insert_job(
@@ -149,7 +86,7 @@ def _make_app(db_path: Path, workspace_root: Path | None = None):
 
 def _build_get_headers(raw_key: str, method: str, path: str) -> dict[str, str]:
     """Build auth headers for a GET request (no body)."""
-    headers = _sign_request(raw_key, method, path, body=b"")
+    headers = sign_request(raw_key, method, path, body=b"")
     headers["Authorization"] = f"Bearer {raw_key}"
     return headers
 
@@ -163,8 +100,8 @@ async def test_get_status_succeeded_job(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     pts = json.dumps(
         {
@@ -203,8 +140,8 @@ async def test_get_status_failed_job(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     job_id = await _insert_job(
         db_path,
@@ -235,8 +172,8 @@ async def test_get_status_queued_job_has_queue_position(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     # Insert 3 queued jobs with increasing timestamps
     base = datetime(2026, 1, 1, tzinfo=UTC)
@@ -266,8 +203,8 @@ async def test_get_status_not_found(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     fake_id = str(uuid.uuid4())
     app = _make_app(db_path)
@@ -288,8 +225,8 @@ async def test_get_status_other_users_job(tmp_path: Path) -> None:
     await init_db(db_path=db_path)
 
     # Bob's key
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash, username="bob")
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash, username="bob")
 
     # Alice's job
     job_id = await _insert_job(db_path, username="alice", status="succeeded")
@@ -314,8 +251,8 @@ async def test_get_logs_with_log_files(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     job_id = await _insert_job(db_path, status="succeeded")
 
@@ -352,8 +289,8 @@ async def test_get_logs_no_log_files(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     job_id = await _insert_job(db_path, status="queued")
 
@@ -381,8 +318,8 @@ async def test_get_logs_truncated(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     job_id = await _insert_job(db_path, status="succeeded")
 
@@ -416,8 +353,8 @@ async def test_get_logs_other_users_job(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash, username="bob")
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash, username="bob")
 
     job_id = await _insert_job(db_path, username="alice", status="succeeded")
 
@@ -441,8 +378,8 @@ async def test_list_jobs_returns_own_jobs(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     # 3 jobs for testuser, 2 for otheruser
     for _ in range(3):
@@ -470,8 +407,8 @@ async def test_list_jobs_status_filter(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     await _insert_job(db_path, status="running")
     await _insert_job(db_path, status="running")
@@ -497,8 +434,8 @@ async def test_list_jobs_pagination(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     base = datetime(2026, 1, 1, tzinfo=UTC)
     for i in range(5):
@@ -534,8 +471,8 @@ async def test_list_jobs_empty(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     path = "/api/v1/jobs"
@@ -561,8 +498,8 @@ async def test_get_quota_defaults(mock_group: AsyncMock, tmp_path: Path) -> None
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     path = "/api/v1/users/me/quota"
@@ -588,8 +525,8 @@ async def test_get_quota_with_active_jobs(mock_group: AsyncMock, tmp_path: Path)
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     await _insert_job(db_path, status="queued")
     await _insert_job(db_path, status="running")
@@ -614,8 +551,8 @@ async def test_get_quota_other_user_isolation(mock_group: AsyncMock, tmp_path: P
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     # Insert active jobs for a different user
     await _insert_job(db_path, username="otheruser", status="running")

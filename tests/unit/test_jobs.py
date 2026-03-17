@@ -1,81 +1,17 @@
 """Tests for ds01_jobs.jobs module - POST /api/v1/jobs endpoint."""
 
-import hashlib
-import hmac
 import json
-import secrets
-import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
-import bcrypt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ds01_jobs.database import get_db, init_db
-
-
-def _create_test_key() -> tuple[str, str, str]:
-    """Generate a test API key, key_id, and bcrypt hash."""
-    random_part = secrets.token_urlsafe(32)
-    raw_key = f"ds01_{random_part}"
-    key_id = random_part[:8]
-    key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
-    return raw_key, key_id, key_hash
-
-
-def _sign_request(
-    raw_key: str,
-    method: str,
-    path: str,
-    body: bytes = b"",
-    timestamp: float | None = None,
-    nonce: str | None = None,
-) -> dict[str, str]:
-    """Build HMAC signing headers for a test request."""
-    ts = str(timestamp if timestamp is not None else time.time())
-    n = nonce or secrets.token_urlsafe(16)
-    body_hash = hashlib.sha256(body).hexdigest()
-    canonical = f"{method}\n{path}\n{ts}\n{n}\n{body_hash}"
-    sig = hmac.new(raw_key.encode(), canonical.encode(), hashlib.sha256).hexdigest()
-    return {
-        "X-Timestamp": ts,
-        "X-Nonce": n,
-        "X-Signature": sig,
-    }
-
-
-async def _seed_key(
-    db_path: Path,
-    key_id: str,
-    key_hash: str,
-    username: str = "testuser",
-    unix_username: str = "testuser_unix",
-    expires_at: str | None = None,
-) -> None:
-    """Insert a test API key into the database."""
-    if expires_at is None:
-        expires_at = (datetime.now(UTC) + timedelta(days=90)).isoformat()
-
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "INSERT INTO api_keys "
-            "(username, unix_username, key_id, key_hash, created_at, expires_at, revoked) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                username,
-                unix_username,
-                key_id,
-                key_hash,
-                datetime.now(UTC).isoformat(),
-                expires_at,
-                0,
-            ),
-        )
-        await db.commit()
+from tests.helpers import create_test_key, seed_key, sign_request
 
 
 async def _insert_job(
@@ -132,7 +68,7 @@ def _make_app(db_path: Path):
 def _build_headers(raw_key: str, body_dict: dict) -> dict[str, str]:  # type: ignore[type-arg]
     """Build auth + signing headers for a POST /api/v1/jobs request."""
     body_bytes = json.dumps(body_dict).encode()
-    headers = _sign_request(raw_key, "POST", "/api/v1/jobs", body=body_bytes)
+    headers = sign_request(raw_key, "POST", "/api/v1/jobs", body=body_bytes)
     headers["Authorization"] = f"Bearer {raw_key}"
     headers["Content-Type"] = "application/json"
     return headers
@@ -149,8 +85,8 @@ async def test_submit_job_success(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
@@ -184,8 +120,8 @@ async def test_submit_job_invalid_url(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://evil.com/hacked"}
@@ -212,8 +148,8 @@ async def test_submit_job_with_dockerfile_scan_error(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {
@@ -244,8 +180,8 @@ async def test_submit_job_with_clean_dockerfile(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {
@@ -272,8 +208,8 @@ async def test_submit_job_concurrent_limit_exceeded(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     # Insert 3 active jobs (default concurrent limit)
     for _ in range(3):
@@ -303,8 +239,8 @@ async def test_submit_job_daily_limit_exceeded(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     # Insert 20 completed jobs today (default daily limit)
     for _ in range(20):
@@ -334,8 +270,8 @@ async def test_submit_job_rate_limit_headers_on_success(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
@@ -364,8 +300,8 @@ async def test_submit_job_auto_generated_job_name(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
@@ -417,8 +353,8 @@ async def test_submit_job_repo_not_found(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
@@ -454,8 +390,8 @@ async def test_submit_job_gpu_count_exceeds_total(
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    raw_key, key_id, key_hash = _create_test_key()
-    await _seed_key(db_path, key_id, key_hash)
+    raw_key, key_id, key_hash = create_test_key()
+    await seed_key(db_path, key_id, key_hash)
 
     app = _make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo", "gpu_count": 8}
