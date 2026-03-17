@@ -8,8 +8,8 @@ import aiosqlite
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from ds01_jobs.database import get_db, init_db
-from tests.helpers import create_test_key, seed_key, sign_request
+from ds01_jobs.database import init_db
+from tests.helpers import create_test_key, make_app, seed_key, sign_request
 
 
 async def _insert_job(
@@ -41,21 +41,6 @@ async def _insert_job(
     return jid
 
 
-def _make_app(db_path: Path):
-    """Create a test app with cancel endpoint."""
-    from ds01_jobs.app import create_app
-
-    app = create_app()
-
-    async def _override_get_db():
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            yield db
-
-    app.dependency_overrides[get_db] = _override_get_db
-    return app
-
-
 def _build_cancel_headers(raw_key: str, job_id: str) -> dict[str, str]:
     """Build auth + signing headers for a POST cancel request."""
     path = f"/api/v1/jobs/{job_id}/cancel"
@@ -74,7 +59,7 @@ async def test_cancel_running_job(tmp_path: Path) -> None:
     await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="running")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(raw_key, job_id)
 
     transport = ASGITransport(app=app)
@@ -105,7 +90,7 @@ async def test_cancel_queued_job(tmp_path: Path) -> None:
     await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="queued")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(raw_key, job_id)
 
     transport = ASGITransport(app=app)
@@ -125,7 +110,7 @@ async def test_cancel_completed_job(tmp_path: Path) -> None:
     await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="succeeded")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(raw_key, job_id)
 
     transport = ASGITransport(app=app)
@@ -146,7 +131,7 @@ async def test_cancel_failed_job(tmp_path: Path) -> None:
     await seed_key(db_path, key_id, key_hash)
     job_id = await _insert_job(db_path, status="failed")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(raw_key, job_id)
 
     transport = ASGITransport(app=app)
@@ -167,7 +152,7 @@ async def test_cancel_not_found(tmp_path: Path) -> None:
     await seed_key(db_path, key_id, key_hash)
 
     fake_id = str(uuid.uuid4())
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(raw_key, fake_id)
 
     transport = ASGITransport(app=app)
@@ -195,7 +180,7 @@ async def test_cancel_other_users_job(tmp_path: Path) -> None:
     job_id = await _insert_job(db_path, username="alice", status="running")
 
     # Bob tries to cancel Alice's job
-    app = _make_app(db_path)
+    app = make_app(db_path)
     headers = _build_cancel_headers(bob_key, job_id)
 
     transport = ASGITransport(app=app)
@@ -213,7 +198,7 @@ async def test_cancel_unauthenticated(tmp_path: Path) -> None:
 
     job_id = await _insert_job(db_path, status="running")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(f"/api/v1/jobs/{job_id}/cancel")
