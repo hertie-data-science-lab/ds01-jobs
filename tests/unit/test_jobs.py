@@ -10,8 +10,8 @@ import aiosqlite
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from ds01_jobs.database import get_db, init_db
-from tests.helpers import create_test_key, seed_key, sign_request
+from ds01_jobs.database import init_db
+from tests.helpers import build_headers, create_test_key, make_app, seed_key
 
 
 async def _insert_job(
@@ -42,38 +42,6 @@ async def _insert_job(
         await db.commit()
 
 
-def _make_app(db_path: Path):
-    """Create a test app with jobs router and mocked external calls."""
-    from ds01_jobs.app import create_app
-    from ds01_jobs.jobs import _get_settings
-
-    app = create_app()
-
-    async def _override_get_db():
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            yield db
-
-    def _override_settings():
-        from ds01_jobs.config import Settings
-
-        return Settings(_env_file=None)
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[_get_settings] = _override_settings
-
-    return app
-
-
-def _build_headers(raw_key: str, body_dict: dict) -> dict[str, str]:  # type: ignore[type-arg]
-    """Build auth + signing headers for a POST /api/v1/jobs request."""
-    body_bytes = json.dumps(body_dict).encode()
-    headers = sign_request(raw_key, "POST", "/api/v1/jobs", body=body_bytes)
-    headers["Authorization"] = f"Bearer {raw_key}"
-    headers["Content-Type"] = "application/json"
-    return headers
-
-
 @pytest.mark.asyncio
 @patch("ds01_jobs.rate_limit._get_user_group", new_callable=AsyncMock, return_value="default")
 @patch("ds01_jobs.jobs.verify_repo_accessible", new_callable=AsyncMock)
@@ -88,9 +56,9 @@ async def test_submit_job_success(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -123,9 +91,9 @@ async def test_submit_job_invalid_url(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://evil.com/hacked"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -151,12 +119,12 @@ async def test_submit_job_with_dockerfile_scan_error(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {
         "repo_url": "https://github.com/testorg/myrepo",
         "dockerfile_content": "FROM evil.registry.io/hacker/image:latest\nRUN echo hi",
     }
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -183,12 +151,12 @@ async def test_submit_job_with_clean_dockerfile(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {
         "repo_url": "https://github.com/testorg/myrepo",
         "dockerfile_content": "FROM python:3.13-slim\nRUN pip install torch",
     }
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -215,9 +183,9 @@ async def test_submit_job_concurrent_limit_exceeded(
     for _ in range(3):
         await _insert_job(db_path, status="queued")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -246,9 +214,9 @@ async def test_submit_job_daily_limit_exceeded(
     for _ in range(20):
         await _insert_job(db_path, status="succeeded")
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -273,9 +241,9 @@ async def test_submit_job_rate_limit_headers_on_success(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -303,9 +271,9 @@ async def test_submit_job_auto_generated_job_name(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -331,7 +299,7 @@ async def test_submit_job_unauthenticated(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     await init_db(db_path=db_path)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -356,9 +324,9 @@ async def test_submit_job_repo_not_found(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo"}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     with patch(
         "ds01_jobs.jobs.verify_repo_accessible",
@@ -393,9 +361,9 @@ async def test_submit_job_gpu_count_exceeds_total(
     raw_key, key_id, key_hash = create_test_key()
     await seed_key(db_path, key_id, key_hash)
 
-    app = _make_app(db_path)
+    app = make_app(db_path)
     body = {"repo_url": "https://github.com/testorg/myrepo", "gpu_count": 8}
-    headers = _build_headers(raw_key, body)
+    headers = build_headers(raw_key, body)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
