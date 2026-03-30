@@ -377,6 +377,10 @@ class JobExecutor:
         else:
             docker_prefix = [str(self.settings.docker_bin)]
 
+        # Use NVIDIA_VISIBLE_DEVICES env var instead of --gpus flag.
+        # The daemon has default-runtime=nvidia, so the env var controls
+        # GPU visibility reliably (--gpus flag has device mapping issues).
+        gpu_devices = ",".join(str(i) for i in range(gpu_count))
         cmd = [
             *docker_prefix,
             "run",
@@ -385,8 +389,8 @@ class JobExecutor:
             "--label",
             "ds01.interface=api",
             *resource_args,
-            "--gpus",
-            "all",
+            "-e",
+            f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
             image_tag,
         ]
         log_path = workspace / "run.log"
