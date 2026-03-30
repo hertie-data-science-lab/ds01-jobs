@@ -72,8 +72,9 @@ start_services() {
     cd "$PROJECT_DIR"
     uv sync --quiet
 
-    # Start API server
+    # Start API server (bump daily limit for testing)
     echo "Starting API server..."
+    DS01_JOBS_DEFAULT_DAILY_LIMIT="${DS01_JOBS_DEFAULT_DAILY_LIMIT:-100}" \
     "${VENV}/bin/uvicorn" ds01_jobs.app:app \
         --host 127.0.0.1 --port 8765 \
         >> "${LOG_DIR}/api.log" 2>&1 &
