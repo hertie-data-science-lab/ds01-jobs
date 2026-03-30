@@ -377,10 +377,16 @@ class JobExecutor:
         else:
             docker_prefix = [str(self.settings.docker_bin)]
 
-        # Use NVIDIA_VISIBLE_DEVICES env var instead of --gpus flag.
-        # The daemon has default-runtime=nvidia, so the env var controls
-        # GPU visibility reliably (--gpus flag has device mapping issues).
-        gpu_devices = ",".join(str(i) for i in range(gpu_count))
+        # When running via sudo -u, the Docker wrapper at /usr/local/bin/docker
+        # intercepts --gpus all and dynamically allocates GPUs via ds01-infra's
+        # gpu_allocator_v2.py (respects per-user quotas, MIG partitioning, etc.).
+        # Without sudo -u (dev mode), fall back to NVIDIA_VISIBLE_DEVICES.
+        if unix_username:
+            gpu_flag = ["--gpus", "all"]
+        else:
+            gpu_devices = ",".join(str(i) for i in range(gpu_count))
+            gpu_flag = ["-e", f"NVIDIA_VISIBLE_DEVICES={gpu_devices}"]
+
         cmd = [
             *docker_prefix,
             "run",
@@ -389,8 +395,7 @@ class JobExecutor:
             "--label",
             "ds01.interface=api",
             *resource_args,
-            "-e",
-            f"NVIDIA_VISIBLE_DEVICES={gpu_devices}",
+            *gpu_flag,
             image_tag,
         ]
         log_path = workspace / "run.log"
