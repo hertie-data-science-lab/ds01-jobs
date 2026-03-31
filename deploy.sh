@@ -92,7 +92,11 @@ check_root() {
 }
 
 check_git_clean() {
-    git -C "$SCRIPT_DIR" diff --quiet && git -C "$SCRIPT_DIR" diff --cached --quiet \
+    # Run as the repo owner so git doesn't rewrite .git/index as root
+    local repo_owner
+    repo_owner=$(stat -c %U "$SCRIPT_DIR")
+    sudo -u "$repo_owner" git -C "$SCRIPT_DIR" diff --quiet \
+        && sudo -u "$repo_owner" git -C "$SCRIPT_DIR" diff --cached --quiet \
         || fail "Uncommitted changes detected. Commit or stash before deploying."
 }
 
@@ -170,7 +174,9 @@ setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
-    chmod -R g+rX /opt/ds01-jobs
+    # Group-readable for ds-admin members, excluding .git to avoid git index corruption
+    find /opt/ds01-jobs -not -path '/opt/ds01-jobs/.git*' -not -path '/opt/ds01-jobs/data*' \
+        -exec chmod g+rX {} +
     mkdir -p /opt/ds01-jobs/data
     chown -R ds01:ds-admin /opt/ds01-jobs/data
     chmod 770 /opt/ds01-jobs/data
@@ -183,7 +189,7 @@ setup_directories() {
 
     mkdir -p /var/log/ds01
     touch /var/log/ds01/events.jsonl
-    chown ds01:ds01 /var/log/ds01/events.jsonl
+    chown ds01:ds-admin /var/log/ds01/events.jsonl
 
     log "  Directories and permissions configured"
 }
@@ -243,9 +249,12 @@ setup_python_env() {
     "$UV_BIN" sync --locked
     cd - >/dev/null
 
-    # Ensure ds01 service user can read the venv
+    # Ensure ds01 service user can read and execute the venv.
+    # uv sync runs as root so files are root:root — fix the group so ds01
+    # (which is in ds-admin) can access them.
+    chown -R root:ds-admin "$INSTALL_DIR/.venv"
     chmod -R g+rX "$INSTALL_DIR/.venv"
-    log "  .venv group-readable for ds01 service user"
+    log "  .venv owned root:ds-admin, group-readable for ds01 service user"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
