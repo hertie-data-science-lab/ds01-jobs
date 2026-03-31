@@ -270,6 +270,13 @@ install_systemd_units() {
     cp "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
     log "  Systemd unit files copied"
 
+    # Actions runner drop-in (base unit is owned by the runner installer)
+    local runner_unit="actions.runner.hertie-data-science-lab.ds01-runner.service"
+    local dropin_dir="/etc/systemd/system/${runner_unit}.d"
+    mkdir -p "$dropin_dir"
+    cp "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf" "$dropin_dir/"
+    log "  Actions runner drop-in installed"
+
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
 

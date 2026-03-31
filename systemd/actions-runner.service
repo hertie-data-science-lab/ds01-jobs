@@ -1,0 +1,22 @@
+# GitHub Actions self-hosted runner (installed by actions-runner installer)
+#
+# This is a REFERENCE COPY of the unit file installed at:
+#   /etc/systemd/system/actions.runner.hertie-data-science-lab.ds01-runner.service
+#
+# The runner installer owns the base unit. Do not deploy this file directly.
+# Use the drop-in override in actions-runner.service.d/ for customisations.
+
+[Unit]
+Description=GitHub Actions Runner (hertie-data-science-lab.ds01-runner)
+After=network-online.target
+
+[Service]
+ExecStart=/home/datasciencelab/workspace/actions-runner/runsvc.sh
+User=datasciencelab
+WorkingDirectory=/home/datasciencelab/workspace/actions-runner
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target
