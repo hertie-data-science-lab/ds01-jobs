@@ -239,8 +239,11 @@ install_cloudflared() {
     echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
         | tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
     apt-get update -qq
-    apt-get install -y cloudflared
-    log "  cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
+    if apt-get install -y cloudflared; then
+        log "  cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
+    else
+        log "  WARNING: cloudflared installation failed - tunnel will not be available"
+    fi
 }
 
 setup_python_env() {
@@ -309,9 +312,13 @@ install_systemd_units() {
 verify_health() {
     log "Verifying deployment..."
 
-    # Check all services are active
+    # Check all services are active (skip cloudflared if not installed/configured)
     local all_active=true
     for svc in "${SERVICES[@]}"; do
+        if [[ "$svc" == "ds01-cloudflared" ]] && ! command -v cloudflared &>/dev/null; then
+            log "  $svc: skipped (cloudflared not installed)"
+            continue
+        fi
         if systemctl is-active --quiet "$svc"; then
             log "  $svc: active"
         else
@@ -325,10 +332,10 @@ verify_health() {
         fail "One or more services failed to start"
     fi
 
-    # Wait for API health endpoint
+    # Wait for API health endpoint (use system curl, not any conda/user override)
     local health=""
     for i in $(seq 1 10); do
-        health=$(curl -sf http://127.0.0.1:8765/health 2>/dev/null) && break
+        health=$(/usr/bin/curl -sf http://127.0.0.1:8765/health 2>/dev/null) && break
         sleep 1
     done
 
