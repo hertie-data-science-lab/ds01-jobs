@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    db_path: Path = Path("/opt/ds01-jobs/data/jobs.db")
+    db_path: Path = Path("/var/lib/ds01-jobs/ds01.db")
 
     # API
     api_host: str = "127.0.0.1"
