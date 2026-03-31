@@ -1,0 +1,14 @@
+# /etc/sudoers.d/ds01-jobs
+# Allow the ds01-jobs runner to execute Docker commands as any user.
+# Required because the runner impersonates job owners via sudo -u so
+# the Docker wrapper can apply per-user GPU quotas, cgroup slices,
+# and resource limits from ds01-infra.
+#
+# Install: sudo cp systemd/ds01-jobs-sudoers /etc/sudoers.d/ds01-jobs
+#          sudo chmod 440 /etc/sudoers.d/ds01-jobs
+
+# Service account (systemd)
+ds01 ALL=(ALL) NOPASSWD: /usr/local/bin/docker
+
+# Dev/manual runner (datasciencelab)
+datasciencelab ALL=(ALL) NOPASSWD: /usr/local/bin/docker
