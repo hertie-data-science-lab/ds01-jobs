@@ -265,6 +265,15 @@ install_sudoers() {
 }
 
 install_systemd_units() {
+    # Ensure repo files are readable by root (symlinks expose target permissions)
+    chmod 644 \
+        "$SCRIPT_DIR/systemd/ds01-api.service" \
+        "$SCRIPT_DIR/systemd/ds01-runner.service" \
+        "$SCRIPT_DIR/systemd/ds01-cloudflared.service" \
+        "$SCRIPT_DIR/systemd/actions-runner.service" \
+        "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf"
+    chmod 755 "$SCRIPT_DIR/systemd/actions-runner.service.d"
+
     # Symlink so live units always reflect the repo — no drift possible
     ln -sf "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
     ln -sf "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
