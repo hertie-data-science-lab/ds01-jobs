@@ -265,17 +265,18 @@ install_sudoers() {
 }
 
 install_systemd_units() {
-    cp "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
-    cp "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
-    cp "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
-    log "  Systemd unit files copied"
+    # Symlink so live units always reflect the repo — no drift possible
+    ln -sf "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
+    ln -sf "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
+    ln -sf "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
+    log "  Systemd unit files symlinked"
 
     # Actions runner drop-in (base unit is owned by the runner installer)
     local runner_unit="actions.runner.hertie-data-science-lab.ds01-runner.service"
     local dropin_dir="/etc/systemd/system/${runner_unit}.d"
     mkdir -p "$dropin_dir"
-    cp "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf" "$dropin_dir/"
-    log "  Actions runner drop-in installed"
+    ln -sf "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf" "$dropin_dir/"
+    log "  Actions runner drop-in symlinked"
 
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
