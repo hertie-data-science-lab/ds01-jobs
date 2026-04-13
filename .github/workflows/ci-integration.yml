@@ -24,10 +24,9 @@ jobs:
           git checkout -B ci-test "$GITHUB_SHA"
           uv sync --locked --all-groups
 
-      - name: Fix permissions and restart services
+      - name: Deploy updated code to production services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
-          chmod g+x /home/datasciencelab
           sudo systemctl restart ds01-api ds01-runner
 
           for i in $(seq 1 20); do
@@ -40,4 +39,6 @@ jobs:
           exit 1
 
       - name: Integration tests
+        env:
+          DS01_CI_API_KEY: ${{ secrets.DS01_CI_API_KEY }}
         run: uv run pytest -m integration --tb=short || [ $? -eq 5 ]
