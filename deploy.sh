@@ -92,7 +92,11 @@ check_root() {
 }
 
 check_git_clean() {
-    git -C "$SCRIPT_DIR" diff --quiet && git -C "$SCRIPT_DIR" diff --cached --quiet \
+    # Run as the repo owner so git doesn't rewrite .git/index as root
+    local repo_owner
+    repo_owner=$(stat -c %U "$SCRIPT_DIR")
+    sudo -u "$repo_owner" git -C "$SCRIPT_DIR" diff --quiet \
+        && sudo -u "$repo_owner" git -C "$SCRIPT_DIR" diff --cached --quiet \
         || fail "Uncommitted changes detected. Commit or stash before deploying."
 }
 
@@ -170,7 +174,9 @@ setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
-    chmod -R g+rX /opt/ds01-jobs
+    # Group-readable for ds-admin members, excluding .git to avoid git index corruption
+    find /opt/ds01-jobs -not -path '/opt/ds01-jobs/.git*' -not -path '/opt/ds01-jobs/data*' \
+        -exec chmod g+rX {} +
     mkdir -p /opt/ds01-jobs/data
     chown -R ds01:ds-admin /opt/ds01-jobs/data
     chmod 770 /opt/ds01-jobs/data
@@ -183,7 +189,7 @@ setup_directories() {
 
     mkdir -p /var/log/ds01
     touch /var/log/ds01/events.jsonl
-    chown ds01:ds01 /var/log/ds01/events.jsonl
+    chown ds01:ds-admin /var/log/ds01/events.jsonl
 
     log "  Directories and permissions configured"
 }
@@ -233,8 +239,11 @@ install_cloudflared() {
     echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
         | tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
     apt-get update -qq
-    apt-get install -y cloudflared
-    log "  cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
+    if apt-get install -y cloudflared; then
+        log "  cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
+    else
+        log "  WARNING: cloudflared installation failed - tunnel will not be available"
+    fi
 }
 
 setup_python_env() {
@@ -243,9 +252,12 @@ setup_python_env() {
     "$UV_BIN" sync --locked
     cd - >/dev/null
 
-    # Ensure ds01 service user can read the venv
+    # Ensure ds01 service user can read and execute the venv.
+    # uv sync runs as root so files are root:root — fix the group so ds01
+    # (which is in ds-admin) can access them.
+    chown -R root:ds-admin "$INSTALL_DIR/.venv"
     chmod -R g+rX "$INSTALL_DIR/.venv"
-    log "  .venv group-readable for ds01 service user"
+    log "  .venv owned root:ds-admin, group-readable for ds01 service user"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
@@ -265,10 +277,27 @@ install_sudoers() {
 }
 
 install_systemd_units() {
-    cp "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
-    cp "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
-    cp "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
-    log "  Systemd unit files copied"
+    # Ensure repo files are readable by root (symlinks expose target permissions)
+    chmod 644 \
+        "$SCRIPT_DIR/systemd/ds01-api.service" \
+        "$SCRIPT_DIR/systemd/ds01-runner.service" \
+        "$SCRIPT_DIR/systemd/ds01-cloudflared.service" \
+        "$SCRIPT_DIR/systemd/actions-runner.service" \
+        "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf"
+    chmod 755 "$SCRIPT_DIR/systemd/actions-runner.service.d"
+
+    # Symlink so live units always reflect the repo — no drift possible
+    ln -sf "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
+    ln -sf "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
+    ln -sf "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
+    log "  Systemd unit files symlinked"
+
+    # Actions runner drop-in (base unit is owned by the runner installer)
+    local runner_unit="actions.runner.hertie-data-science-lab.ds01-runner.service"
+    local dropin_dir="/etc/systemd/system/${runner_unit}.d"
+    mkdir -p "$dropin_dir"
+    ln -sf "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf" "$dropin_dir/"
+    log "  Actions runner drop-in symlinked"
 
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
@@ -283,9 +312,13 @@ install_systemd_units() {
 verify_health() {
     log "Verifying deployment..."
 
-    # Check all services are active
+    # Check all services are active (skip cloudflared if not installed/configured)
     local all_active=true
     for svc in "${SERVICES[@]}"; do
+        if [[ "$svc" == "ds01-cloudflared" ]] && ! command -v cloudflared &>/dev/null; then
+            log "  $svc: skipped (cloudflared not installed)"
+            continue
+        fi
         if systemctl is-active --quiet "$svc"; then
             log "  $svc: active"
         else
@@ -299,10 +332,10 @@ verify_health() {
         fail "One or more services failed to start"
     fi
 
-    # Wait for API health endpoint
+    # Wait for API health endpoint (use system curl, not any conda/user override)
     local health=""
     for i in $(seq 1 10); do
-        health=$(curl -sf http://127.0.0.1:8765/health 2>/dev/null) && break
+        health=$(/usr/bin/curl -sf http://127.0.0.1:8765/health 2>/dev/null) && break
         sleep 1
     done
 
