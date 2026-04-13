@@ -34,6 +34,7 @@ jobs:
       - name: Deploy updated code to production services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
+          sudo systemctl daemon-reload
           # systemd's ExecStartPre on ds01-api/ds01-runner runs `uv sync` as ds01
           # before starting the service, populating /var/lib/ds01-jobs/venv.
           sudo systemctl restart ds01-api ds01-runner
