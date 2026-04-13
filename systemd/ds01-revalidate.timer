@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily DS01 API key revalidation
+Documentation=file:///opt/ds01-jobs/README.md
+
+[Timer]
+# Run daily at 03:17 local time. Persistent so missed runs (host offline)
+# fire at next boot. RandomizedDelaySec smooths load across hosts if we
+# ever run more than one.
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=600
+Persistent=true
+Unit=ds01-revalidate.service
+
+[Install]
+WantedBy=timers.target
