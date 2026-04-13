@@ -8,11 +8,15 @@ Type=simple
 User=ds01
 Group=ds01
 WorkingDirectory=/opt/ds01-jobs
-# Venv is at /var/lib/ds01-jobs/venv (owned by ds01). CI syncs it via
-# UV_PROJECT_ENVIRONMENT before restarting services. uv is not on a system path,
-# so ExecStartPre is not used; deps refresh on each CI deploy instead.
+# Venv at /var/lib/ds01-jobs/venv is created/refreshed by ExecStartPre as ds01.
+# Uses system uv at /usr/local/bin/uv and uv-managed Python 3.13 at
+# /usr/local/share/uv-python/ (both world-readable, no dependency on user homes).
+ExecStartPre=/usr/local/bin/uv sync --locked --all-groups --project /opt/ds01-jobs
 ExecStart=/var/lib/ds01-jobs/venv/bin/uvicorn ds01_jobs.app:app --host 127.0.0.1 --port 8765
 Environment=UV_PROJECT_ENVIRONMENT=/var/lib/ds01-jobs/venv
+Environment=UV_PYTHON_INSTALL_DIR=/usr/local/share/uv-python
+Environment=UV_PYTHON=/usr/local/share/uv-python/cpython-3.13-linux-x86_64-gnu/bin/python3.13
+Environment=UV_CACHE_DIR=/var/lib/ds01-jobs/uv-cache
 Restart=always
 RestartSec=5
 EnvironmentFile=/etc/ds01-jobs/env

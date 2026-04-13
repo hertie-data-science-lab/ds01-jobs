@@ -239,13 +239,14 @@ install_cloudflared() {
 
 setup_python_env() {
     local venv_dir="/var/lib/ds01-jobs/venv"
-    log "  Running uv sync --locked (venv: ${venv_dir})..."
-    cd "$INSTALL_DIR"
-    UV_PROJECT_ENVIRONMENT="$venv_dir" "$UV_BIN" sync --locked
-    cd - >/dev/null
-
-    # The venv lives in /var/lib/ds01-jobs (owned by ds01), not in the source
-    # tree. No chmod needed - ds01 owns the directory already.
+    log "  Running uv sync --locked as ds01 (venv: ${venv_dir})..."
+    # Sync as the ds01 service user so the venv is owned correctly.
+    # Uses system uv and uv-managed Python 3.13 (world-readable under /usr/local).
+    sudo -u ds01 \
+        UV_PROJECT_ENVIRONMENT="$venv_dir" \
+        UV_PYTHON_INSTALL_DIR=/usr/local/share/uv-python \
+        UV_PYTHON=/usr/local/share/uv-python/cpython-3.13-linux-x86_64-gnu/bin/python3.13 \
+        /usr/local/bin/uv sync --locked --project "$INSTALL_DIR"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
