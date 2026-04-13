@@ -149,8 +149,8 @@ def _check_bot_app_installed(app_slug: str, org: str, token: str) -> bool:
 
         if response.status_code != 200:
             typer.echo(
-                f"Unexpected response from GitHub API ({response.status_code}) while checking App installation. "
-                "Ensure your token has read:org scope.",
+                f"Unexpected response from GitHub API ({response.status_code}) "
+                "while checking App installation. Ensure your token has read:org scope.",
                 err=True,
             )
             raise typer.Exit(code=1)
