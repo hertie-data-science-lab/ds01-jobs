@@ -1,5 +1,3 @@
-# ds01-test-failing
-Job that fails during execution. Tests error reporting.
-- main branch: Python RuntimeError during run phase
-- bad-dockerfile branch: Dockerfile build failure (missing file)
-- bad-base-image branch: Disallowed base image (should be rejected at submission)
+# failing-build
+
+Dockerfile that `COPY`s a file that does not exist. Tests build-failure reporting.

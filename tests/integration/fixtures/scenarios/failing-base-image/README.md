@@ -1,5 +1,3 @@
-# ds01-test-failing
-Job that fails during execution. Tests error reporting.
-- main branch: Python RuntimeError during run phase
-- bad-dockerfile branch: Dockerfile build failure (missing file)
-- bad-base-image branch: Disallowed base image (should be rejected at submission)
+# failing-base-image
+
+Dockerfile using a disallowed base image (`alpine:latest`). Should be rejected by the scanner at submission time — preserved as a fixture for future "scanner on cloned repo" tests.

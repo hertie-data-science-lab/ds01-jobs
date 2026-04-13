@@ -15,8 +15,7 @@ set -euo pipefail
 
 API_URL="${DS01_API_URL:-http://127.0.0.1:8765}"
 SUBMIT="ds01-submit"
-ORG="hertie-data-science-lab"
-TEST_REPO="https://github.com/$ORG/ds01-jobs"
+TEST_REPO="https://github.com/hertie-data-science-lab/ds01-jobs"
 RESULTS_DIR="/tmp/ds01-test-results"
 
 mkdir -p "$RESULTS_DIR"

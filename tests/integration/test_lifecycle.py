@@ -26,8 +26,6 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-# Self-hosted smoke fixture - Dockerfile runs nvidia-smi and writes to /output/.
-# Source: tests/integration/fixtures/scenarios/smoke/, published to fixtures/smoke.
 TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-jobs"
 TEST_REPO_BRANCH = "fixtures/smoke"
 
