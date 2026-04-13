@@ -26,9 +26,7 @@ class Settings(BaseSettings):
 
     # Authentication
     github_org: str = "hertie-data-science-lab"
-    # When set, key-create and the nightly revalidation gate on membership
-    # of this team (under github_org) instead of org membership. Empty string
-    # means org-level gate.
+    # Empty string means org-level gate; a team slug narrows to that team.
     github_team: str = ""
     key_expiry_days: int = 90
 

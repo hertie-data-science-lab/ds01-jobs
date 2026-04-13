@@ -9,7 +9,6 @@ Type=oneshot
 User=ds01
 Group=ds01
 WorkingDirectory=/opt/ds01-jobs
-# Uses the same venv + env file as the API/runner services.
 ExecStart=/var/lib/ds01-jobs/venv/bin/ds01-job-revalidate
 Environment=UV_PROJECT_ENVIRONMENT=/var/lib/ds01-jobs/venv
 EnvironmentFile=/etc/ds01-jobs/env

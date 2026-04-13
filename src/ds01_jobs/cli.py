@@ -339,7 +339,6 @@ def key_create(
         typer.echo(f"Error: Unix user {unix_username!r} does not exist on this server", err=True)
         raise typer.Exit(code=1)
 
-    # Check GitHub access (team-level if configured, else org-level)
     if not verify_github_access(github_username, settings):
         gate = (
             f"team {settings.github_org}/{settings.github_team}"

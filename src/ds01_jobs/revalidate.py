@@ -17,9 +17,9 @@ from typing import Annotated
 import httpx
 import typer
 
-from ds01_jobs.cli import verify_github_access
+from ds01_jobs.cli import _ensure_schema, verify_github_access
 from ds01_jobs.config import Settings
-from ds01_jobs.database import _MIGRATIONS, SCHEMA_SQL, get_db_sync
+from ds01_jobs.database import get_db_sync
 
 app = typer.Typer(
     name="ds01-job-revalidate",
@@ -53,14 +53,6 @@ def _active_usernames(conn: sqlite3.Connection) -> list[str]:
     return [row["username"] for row in cursor.fetchall()]
 
 
-def _safe_check_access(username: str, settings: Settings) -> bool | None:
-    """Return True/False if GitHub answered, None if the call failed."""
-    try:
-        return verify_github_access(username, settings)
-    except (typer.Exit, httpx.HTTPError):
-        return None
-
-
 @app.command()
 def main(
     dry_run: Annotated[
@@ -80,22 +72,17 @@ def main(
     skipped = 0
 
     with get_db_sync() as conn:
-        conn.executescript(SCHEMA_SQL)
-        for stmt in _MIGRATIONS:
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass
-        conn.commit()
+        _ensure_schema(conn)
 
         for username in _active_usernames(conn):
             checked += 1
-            has_access = _safe_check_access(username, settings)
-
-            if has_access is None:
+            try:
+                has_access = verify_github_access(username, settings)
+            except (typer.Exit, httpx.HTTPError):
                 typer.echo(f"skip {username}: github check failed")
                 skipped += 1
                 continue
+
             if has_access:
                 continue
 
