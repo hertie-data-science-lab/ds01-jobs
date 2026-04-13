@@ -10,6 +10,7 @@
 set -euo pipefail
 
 PROJECT_DIR="/opt/ds01-jobs"
+# Local dev uses in-tree .venv; production uses /var/lib/ds01-jobs/venv (owned by ds01).
 VENV="${PROJECT_DIR}/.venv"
 LOG_DIR="/var/log/ds01-jobs"
 API_PID_FILE="${LOG_DIR}/api.pid"

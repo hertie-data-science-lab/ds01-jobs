@@ -22,15 +22,20 @@ jobs:
           cd /opt/ds01-jobs
           git fetch origin "$GITHUB_SHA"
           git checkout -B ci-test "$GITHUB_SHA"
-          uv sync --locked --all-groups
+
+      - name: Verify service venv is not CI-owned
+        run: |
+          if [ -d /var/lib/ds01-jobs/venv ] && [ -O /var/lib/ds01-jobs/venv ]; then
+            echo "::error::Service venv at /var/lib/ds01-jobs/venv is owned by the CI runner."
+            echo "It must be owned by the ds01 service user (created via systemd ExecStartPre)."
+            exit 1
+          fi
 
       - name: Deploy updated code to production services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
-          # Allow ds01 service user to traverse datasciencelab's home to reach the
-          # venv's Python symlink (-> anaconda3). Redundant once PR 3 lands (venv
-          # relocated to /var/lib/ds01-jobs/venv with a system Python).
-          chmod g+x /home/datasciencelab
+          # systemd's ExecStartPre on ds01-api/ds01-runner runs `uv sync` as ds01
+          # before starting the service, populating /var/lib/ds01-jobs/venv.
           sudo systemctl restart ds01-api ds01-runner
 
           for i in $(seq 1 20); do

@@ -105,9 +105,10 @@ Installs `cloudflared` from the Cloudflare apt repository if not already present
 
 ### 5. Set up Python environment
 
-Runs `uv sync --locked` in `/opt/ds01-jobs` to install the exact dependency versions from
-`uv.lock`. Makes the `.venv` group-readable for the `ds01` service user. Verifies that all
-three entrypoints exist: `ds01-job-admin`, `ds01-job-runner`, `ds01-submit`.
+Runs `uv sync --locked` with `UV_PROJECT_ENVIRONMENT=/var/lib/ds01-jobs/venv` to install
+the exact dependency versions from `uv.lock` into the service-owned venv. The venv lives
+outside the source tree so that CI and `deploy.sh` never conflict over ownership. Verifies
+that all three entrypoints exist: `ds01-job-admin`, `ds01-job-runner`, `ds01-submit`.
 
 ### 6. Install sudoers drop-in
 
@@ -249,7 +250,7 @@ proxy settings required.
 ## API Key Management
 
 API keys are managed with the `ds01-job-admin` CLI, located at
-`/opt/ds01-jobs/.venv/bin/ds01-job-admin`. Run it as a user who can read
+`/var/lib/ds01-jobs/venv/bin/ds01-job-admin`. Run it as a user who can read
 `/etc/ds01-jobs/env`, or with the database path set via `DS01_JOBS_DB_PATH`.
 
 ### Create a key
