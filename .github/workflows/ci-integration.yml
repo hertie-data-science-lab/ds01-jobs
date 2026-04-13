@@ -27,6 +27,10 @@ jobs:
       - name: Deploy updated code to production services
         run: |
           find /opt/ds01-jobs -path /opt/ds01-jobs/data -prune -o -print0 | xargs -0 chmod g+rX
+          # Allow ds01 service user to traverse datasciencelab's home to reach the
+          # venv's Python symlink (-> anaconda3). Redundant once PR 3 lands (venv
+          # relocated to /var/lib/ds01-jobs/venv with a system Python).
+          chmod g+x /home/datasciencelab
           sudo systemctl restart ds01-api ds01-runner
 
           for i in $(seq 1 20); do
