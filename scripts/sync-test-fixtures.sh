@@ -76,10 +76,13 @@ sync_one() {
         echo "[dry-run] would push $branch ($sha)"
     else
         git -C "$tmp" remote add origin "$(git -C "$REPO_ROOT" remote get-url origin)"
-        # Use --force-with-lease to avoid silent clobber of concurrent edits.
-        # Empty value means "fail if remote ref exists and we don't expect it"
-        # — fine for our case because rebuild from same tree produces same SHA.
-        if git -C "$tmp" push --force-with-lease "origin" "$branch" 2>&1; then
+        # --force is intentional: fixtures/* branches are pure publication
+        # from the canonical source-of-truth on main. The temp repo has no
+        # knowledge of remote state (fresh init), so --force-with-lease
+        # always rejects with "stale info". Direct edits to fixtures/*
+        # branches are not supported — edit scenarios/<name>/ on main and
+        # re-sync.
+        if git -C "$tmp" push --force "origin" "$branch" 2>&1; then
             echo "synced $branch ($sha)"
         else
             echo "Error: push failed for $branch" >&2
