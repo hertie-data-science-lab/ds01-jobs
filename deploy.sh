@@ -238,20 +238,20 @@ install_cloudflared() {
 }
 
 setup_python_env() {
-    log "  Running uv sync --locked..."
+    local venv_dir="/var/lib/ds01-jobs/venv"
+    log "  Running uv sync --locked (venv: ${venv_dir})..."
     cd "$INSTALL_DIR"
-    "$UV_BIN" sync --locked
+    UV_PROJECT_ENVIRONMENT="$venv_dir" "$UV_BIN" sync --locked
     cd - >/dev/null
 
-    # Ensure ds01 service user can read the venv
-    chmod -R g+rX "$INSTALL_DIR/.venv"
-    log "  .venv group-readable for ds01 service user"
+    # The venv lives in /var/lib/ds01-jobs (owned by ds01), not in the source
+    # tree. No chmod needed - ds01 owns the directory already.
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
     for ep in "${entrypoints[@]}"; do
-        if [[ ! -x "$INSTALL_DIR/.venv/bin/$ep" ]]; then
-            fail "Entrypoint $ep not found in .venv/bin/"
+        if [[ ! -x "${venv_dir}/bin/$ep" ]]; then
+            fail "Entrypoint $ep not found in ${venv_dir}/bin/"
         fi
     done
     log "  Python environment ready, all entrypoints verified"

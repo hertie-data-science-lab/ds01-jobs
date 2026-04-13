@@ -9,7 +9,11 @@ Type=simple
 User=ds01
 Group=ds01
 WorkingDirectory=/opt/ds01-jobs
-ExecStart=/opt/ds01-jobs/.venv/bin/ds01-job-runner
+# Venv is at /var/lib/ds01-jobs/venv (owned by ds01). CI syncs it via
+# UV_PROJECT_ENVIRONMENT before restarting services. uv is not on a system path,
+# so ExecStartPre is not used; deps refresh on each CI deploy instead.
+ExecStart=/var/lib/ds01-jobs/venv/bin/ds01-job-runner
+Environment=UV_PROJECT_ENVIRONMENT=/var/lib/ds01-jobs/venv
 Restart=always
 RestartSec=5
 KillMode=process
