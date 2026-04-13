@@ -7,11 +7,9 @@ Prerequisites:
     - ds01-jobs API running at http://127.0.0.1:8765
     - ds01-job-runner active and connected
     - Docker available with GPU access
-    - Test repo https://github.com/hertie-data-science-lab/ds01-test-job must exist
-      with a Dockerfile that runs ``nvidia-smi > /output/gpu.txt``
-
-If the test repo does not exist yet, the test will fail with a clear clone
-error. Creating the repo is a separate manual step.
+    - The ``fixtures/smoke`` branch must exist on origin (this repo).
+      Source-of-truth lives at ``tests/integration/fixtures/scenarios/smoke/``;
+      publish via ``scripts/sync-test-fixtures.sh``.
 
 Marked ``@pytest.mark.integration`` so it only runs on the self-hosted GPU
 runner via Tier 2 CI.
@@ -28,8 +26,8 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-# Known minimal test repo - Dockerfile runs nvidia-smi and writes to /output/
-TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-test-job"
+TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-jobs"
+TEST_REPO_BRANCH = "fixtures/smoke"
 
 API_BASE_URL = "http://127.0.0.1:8765"
 
@@ -49,27 +47,23 @@ def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.Compl
 
 @pytest.fixture()
 def api_key() -> str:
-    """Create a temporary API key for the lifecycle test.
+    """Return the pre-provisioned CI API key.
 
-    Uses ``ds01-job-admin key-create`` with the ``datasciencelab`` org member
-    account. Revokes any pre-existing key first, then tears down after the test.
+    Reads ``DS01_CI_API_KEY`` from the environment (set via the ``DS01_CI_API_KEY``
+    GitHub Actions secret). The key is issued once by an admin via::
+
+        ds01-job-admin key-create ds01-ci-bot[bot] datasciencelab --expires 365d --json
+
+    and stored as a repository secret. Tests are skipped if the variable is unset
+    (e.g. local runs without the secret configured).
     """
-    github_user = "henrycgbaker"
-    unix_user = "datasciencelab"
-
-    # Revoke any leftover key from a previous run
-    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
-
-    result = _run(["ds01-job-admin", "key-create", github_user, unix_user, "--json"])
-    assert result.returncode == 0, f"key-create failed: {result.stderr}"
-
-    data = json.loads(result.stdout)
-    raw_key = data["key"]
-
-    yield raw_key
-
-    # Teardown: revoke the key
-    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
+    key = os.environ.get("DS01_CI_API_KEY")
+    if not key:
+        pytest.skip(
+            "DS01_CI_API_KEY not set — provision via 'ds01-job-admin key-create' "
+            "and store as a GitHub Actions secret"
+        )
+    return key
 
 
 @pytest.fixture()
@@ -90,7 +84,10 @@ def test_full_job_lifecycle(
     }
 
     # 1. Submit a job via ds01-submit run
-    result = _run(["ds01-submit", "run", TEST_REPO_URL, "--json"], env=env)
+    result = _run(
+        ["ds01-submit", "run", TEST_REPO_URL, "--branch", TEST_REPO_BRANCH, "--json"],
+        env=env,
+    )
     assert result.returncode == 0, f"Job submission failed: {result.stderr}"
 
     submit_data = json.loads(result.stdout)

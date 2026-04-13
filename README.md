@@ -3,7 +3,7 @@
 Remote GPU job submission for Hertie School's DS01 server. Submit a job via CLI or GitHub Actions, get results back — no SSH or VPN required.
 
 ```bash
-ds01-submit run https://github.com/hertie-data-science-lab/ds01-test-job --gpus 1
+ds01-submit run https://github.com/hertie-data-science-lab/ds01-jobs --branch fixtures/smoke --gpus 1
 ```
 
 ## Quick start
@@ -38,7 +38,7 @@ DS01_API_KEY=ds01_yourkey ds01-submit configure
 Point `ds01-submit run` at a public GitHub repo containing a `Dockerfile`:
 
 ```bash
-ds01-submit run https://github.com/hertie-data-science-lab/ds01-test-job --gpus 1
+ds01-submit run https://github.com/hertie-data-science-lab/ds01-jobs --branch fixtures/smoke --gpus 1
 # prints: d3a4b2c1-...
 ```
 
@@ -75,7 +75,7 @@ Your repository needs:
 - A `Dockerfile` at the root (or specify a path with `--dockerfile`)
 - Write output files to `/output/` inside the container - these become the job results
 
-The [ds01-test-job](ds01-test-job/) directory in this repo is a minimal working example:
+The [`tests/integration/fixtures/scenarios/smoke/`](tests/integration/fixtures/scenarios/smoke/) directory in this repo is a minimal working example (published to the `fixtures/smoke` branch on origin):
 
 ```dockerfile
 FROM nvcr.io/nvidia/cuda:12.6.3-base-ubuntu24.04

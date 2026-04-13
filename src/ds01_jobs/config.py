@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Database
+    # Must match DS01_JOBS_DB_PATH in /etc/ds01-jobs/env (the systemd EnvironmentFile).
     db_path: Path = Path("/opt/ds01-jobs/data/jobs.db")
 
     # API

@@ -62,8 +62,15 @@ def _handle_error(resp: httpx.Response) -> None:
     """Print a structured error message from an API error response and exit."""
     try:
         body = resp.json()
+        # 422 validation errors: {"error": {"message": "..."}}
         if "error" in body and isinstance(body["error"], dict):
             typer.echo(f"Error: {body['error'].get('message', resp.status_code)}", err=True)
+        # 429 rate limits / HTTPException: {"detail": {"error": {"message": "..."}}}
+        elif "detail" in body and isinstance(body["detail"], dict):
+            inner = body["detail"].get("error", {})
+            msg = inner.get("message") if isinstance(inner, dict) else None
+            typer.echo(f"Error: {msg or body['detail']}", err=True)
+        # Simple HTTPException: {"detail": "string"}
         elif "detail" in body:
             typer.echo(f"Error: {body['detail']}", err=True)
         else:

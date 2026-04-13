@@ -13,16 +13,6 @@ class HealthResponse(BaseModel):
     db: Literal["ok", "error"]
 
 
-class RateLimitResponse(BaseModel):
-    """Response schema for 429 rate limit errors."""
-
-    error: str = "rate_limit_exceeded"
-    retry_after_seconds: int
-    limit_type: str
-    current_count: int
-    max_allowed: int
-
-
 # --- Job submission models ---
 
 
@@ -69,7 +59,7 @@ class APIError(BaseModel):
 
 
 class RateLimitErrorResponse(BaseModel):
-    """Structured 429 response body for per-user rate limits."""
+    """Structured 429 response body for all rate limits (global and per-user)."""
 
     type: Literal["rate_limit_error"] = "rate_limit_error"
     limit_type: str
