@@ -16,6 +16,7 @@ set -euo pipefail
 API_URL="${DS01_API_URL:-http://127.0.0.1:8765}"
 SUBMIT="ds01-submit"
 ORG="hertie-data-science-lab"
+TEST_REPO="https://github.com/$ORG/ds01-jobs"
 RESULTS_DIR="/tmp/ds01-test-results"
 
 mkdir -p "$RESULTS_DIR"
@@ -72,7 +73,7 @@ run_test() {
 
     1)
         log "Test 1: CPU quick job (python:3.12-slim, ~30s)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-cpu-quick" --gpus 1 || { fail "cpu-quick: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/cpu-quick --gpus 1 || { fail "cpu-quick: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "succeeded" ]]; then
             download_results "cpu-quick"
             if [[ -f "$RESULTS_DIR/cpu-quick/results/result.json" ]]; then
@@ -88,7 +89,7 @@ run_test() {
 
     2)
         log "Test 2: Long-running job (~2min, 12 epochs)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-long-running" --gpus 1 || { fail "long-running: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/long-running --gpus 1 || { fail "long-running: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "succeeded" ]]; then
             download_results "long-running"
             if [[ -f "$RESULTS_DIR/long-running/results/training_results.json" ]]; then
@@ -105,7 +106,7 @@ run_test() {
 
     3)
         log "Test 3: Multi-file output (CSV + PNG + JSON)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-multi-file" --gpus 1 || { fail "multi-file: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/multi-file --gpus 1 || { fail "multi-file: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "succeeded" ]]; then
             download_results "multi-file"
             local rdir="$RESULTS_DIR/multi-file/results"
@@ -123,7 +124,7 @@ run_test() {
 
     4)
         log "Test 4: Large output (~50MB)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-large-output" --gpus 1 || { fail "large-output: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/large-output --gpus 1 || { fail "large-output: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "succeeded" ]]; then
             download_results "large-output"
             local rdir="$RESULTS_DIR/large-output/results"
@@ -143,7 +144,7 @@ run_test() {
 
     5)
         log "Test 5: Runtime failure (Python exception)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-failing" --gpus 1 || { fail "runtime-failure: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/failing-runtime --gpus 1 || { fail "runtime-failure: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "failed" ]]; then
             pass "runtime-failure correctly reported as failed"
         else
@@ -153,7 +154,7 @@ run_test() {
 
     6)
         log "Test 6: Build failure (COPY nonexistent file)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-failing" --gpus 1 --branch bad-dockerfile || { fail "build-failure: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/failing-build --gpus 1 || { fail "build-failure: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "failed" ]]; then
             pass "build-failure correctly reported as failed"
         else
@@ -169,7 +170,7 @@ run_test() {
         local bad_df="/tmp/ds01-bad-dockerfile"
         printf 'FROM bitnami/python:latest\nCMD echo "should never run"\n' > "$bad_df"
         local out exit_code
-        out=$(DS01_API_URL="$API_URL" $SUBMIT run "https://github.com/$ORG/ds01-test-cpu-quick" --gpus 1 --dockerfile "$bad_df" --json 2>&1) && exit_code=0 || exit_code=$?
+        out=$(DS01_API_URL="$API_URL" $SUBMIT run "$TEST_REPO" --branch fixtures/cpu-quick --gpus 1 --dockerfile "$bad_df" --json 2>&1) && exit_code=0 || exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
             log "  Rejected: $out"
             pass "scanner rejection: disallowed base image blocked at submission"
@@ -187,7 +188,7 @@ run_test() {
     8)
         log "Test 8: GPU compute (PyTorch matmul + training)"
         log "  NOTE: First run pulls ~8GB image — may take several minutes"
-        submit_and_follow "https://github.com/$ORG/ds01-test-gpu-compute" --gpus 1 || { fail "gpu-compute: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/gpu-compute --gpus 1 || { fail "gpu-compute: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "succeeded" ]]; then
             download_results "gpu-compute"
             local rdir="$RESULTS_DIR/gpu-compute/results"
@@ -206,7 +207,7 @@ run_test() {
 
     9)
         log "Test 9: Timeout enforcement (submit with 60s timeout)"
-        submit_and_follow "https://github.com/$ORG/ds01-test-timeout" --gpus 1 --timeout 60 || { fail "timeout: $JOB_STATUS"; return; }
+        submit_and_follow "$TEST_REPO" --branch fixtures/timeout --gpus 1 --timeout 60 || { fail "timeout: $JOB_STATUS"; return; }
         if [[ "$JOB_STATUS" == "failed" ]]; then
             pass "timeout correctly enforced — job killed"
         else
