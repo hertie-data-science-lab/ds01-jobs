@@ -47,27 +47,23 @@ def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.Compl
 
 @pytest.fixture()
 def api_key() -> str:
-    """Create a temporary API key for the lifecycle test.
+    """Return the pre-provisioned CI API key.
 
-    Uses ``ds01-job-admin key-create`` with the ``datasciencelab`` org member
-    account. Revokes any pre-existing key first, then tears down after the test.
+    Reads ``DS01_CI_API_KEY`` from the environment (set via the ``DS01_CI_API_KEY``
+    GitHub Actions secret). The key is issued once by an admin via::
+
+        ds01-job-admin key-create ds01-ci-bot[bot] datasciencelab --expires 365d --json
+
+    and stored as a repository secret. Tests are skipped if the variable is unset
+    (e.g. local runs without the secret configured).
     """
-    github_user = "henrycgbaker"
-    unix_user = "datasciencelab"
-
-    # Revoke any leftover key from a previous run
-    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
-
-    result = _run(["ds01-job-admin", "key-create", github_user, unix_user, "--json"])
-    assert result.returncode == 0, f"key-create failed: {result.stderr}"
-
-    data = json.loads(result.stdout)
-    raw_key = data["key"]
-
-    yield raw_key
-
-    # Teardown: revoke the key
-    _run(["ds01-job-admin", "key-revoke", github_user, "--yes"])
+    key = os.environ.get("DS01_CI_API_KEY")
+    if not key:
+        pytest.skip(
+            "DS01_CI_API_KEY not set — provision via 'ds01-job-admin key-create' "
+            "and store as a GitHub Actions secret"
+        )
+    return key
 
 
 @pytest.fixture()

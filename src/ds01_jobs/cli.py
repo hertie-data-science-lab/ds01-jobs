@@ -123,21 +123,82 @@ def _resolve_github_token() -> str | None:
     return None
 
 
-def check_org_membership(username: str, org: str) -> bool:
-    """Check GitHub organisation membership.
+def _check_bot_app_installed(app_slug: str, org: str, token: str) -> bool:
+    """Check whether a GitHub App (identified by slug) is installed on the org.
 
-    Resolves a GitHub token from (in order): GITHUB_TOKEN env var, gh CLI.
-    With a token, uses the authenticated members endpoint (sees private
-    memberships). Without a token, falls back to the public members endpoint.
+    Uses GET /orgs/{org}/installations which requires a token with read:org scope
+    (org owner or fine-grained token). Paginates through all installations.
 
     Args:
-        username: GitHub username to check.
+        app_slug: The App slug (username without the trailing ``[bot]``).
+        org: GitHub organisation name.
+        token: GitHub token with read:org scope.
+
+    Returns:
+        True if the App is installed on the org, False otherwise.
+    """
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
+    page = 1
+    while True:
+        url = f"https://api.github.com/orgs/{org}/installations?per_page=100&page={page}"
+        try:
+            response = httpx.get(url, headers=headers, timeout=10.0)
+        except httpx.HTTPError as exc:
+            typer.echo(f"Error checking GitHub App installation: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        if response.status_code != 200:
+            typer.echo(
+                f"Unexpected response from GitHub API ({response.status_code}) while checking App installation. "
+                "Ensure your token has read:org scope.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        data = response.json()
+        for installation in data.get("installations", []):
+            if installation.get("app_slug") == app_slug:
+                return True
+
+        if len(data.get("installations", [])) < 100:
+            break
+        page += 1
+
+    return False
+
+
+def check_org_membership(username: str, org: str) -> bool:
+    """Check GitHub organisation membership or App installation.
+
+    For regular users: resolves a GitHub token from (in order): GITHUB_TOKEN
+    env var, gh CLI. With a token, uses the authenticated members endpoint
+    (sees private memberships). Without a token, falls back to the public
+    members endpoint.
+
+    For GitHub App bot users (username ending in ``[bot]``): verifies the App
+    is installed on the org via GET /orgs/{org}/installations. Requires a token
+    with read:org scope — a gh CLI session as org owner satisfies this.
+
+    Args:
+        username: GitHub username (regular user or ``{app-slug}[bot]``).
         org: GitHub organisation name.
 
     Returns:
-        True if user is a member, False otherwise.
+        True if user is a member / App is installed, False otherwise.
     """
     token = _resolve_github_token()
+
+    if username.endswith("[bot]"):
+        app_slug = username[:-5]  # strip "[bot]"
+        if not token:
+            typer.echo(
+                "A GitHub token with read:org scope is required to verify GitHub App installation. "
+                "Run 'gh auth login' or set GITHUB_TOKEN.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        return _check_bot_app_installed(app_slug, org, token)
+
     headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
 
     if token:
