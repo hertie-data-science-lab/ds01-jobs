@@ -3,11 +3,16 @@
 Provides test key generation, HMAC signing, database seeding, and
 app/client fixtures that wire up a real FastAPI app against a temporary
 SQLite database. These are Tier 1 tests - no @pytest.mark.integration.
+
+Also exposes Tier 2 fixtures (``api_key``, ``api_base_url``) and a
+``subprocess_runner`` helper used by live-API scenarios.
 """
 
 import hashlib
 import hmac
+import os
 import secrets
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -24,6 +29,8 @@ from ds01_jobs.app import create_app
 from ds01_jobs.config import Settings
 from ds01_jobs.database import _get_db_path, get_db, init_db
 from ds01_jobs.jobs import _get_settings
+
+LIVE_API_BASE_URL = "http://127.0.0.1:8765"
 
 # ---------------------------------------------------------------------------
 # Helper functions (module-level, not fixtures)
@@ -206,6 +213,37 @@ async def client(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+@pytest.fixture()
+def api_key() -> str:
+    """Pre-provisioned Tier 2 CI API key; skips when unset (local runs)."""
+    key = os.environ.get("DS01_CI_API_KEY")
+    if not key:
+        pytest.skip(
+            "DS01_CI_API_KEY not set — provision via 'ds01-job-admin key-create' "
+            "and store as a GitHub Actions secret"
+        )
+    return key
+
+
+@pytest.fixture()
+def api_base_url() -> str:
+    """Base URL of the live API on the self-hosted runner."""
+    return LIVE_API_BASE_URL
+
+
+@pytest.fixture()
+def subprocess_runner():
+    """Return a helper that runs subprocesses with a merged environment."""
+
+    def _run(
+        args: list[str], env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        merged_env = {**os.environ, **(env or {})}
+        return subprocess.run(args, capture_output=True, text=True, env=merged_env)
+
+    return _run
 
 
 @pytest.fixture(autouse=True)
