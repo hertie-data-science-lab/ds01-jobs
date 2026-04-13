@@ -114,7 +114,8 @@ async def check_rate_limits(
 
     Returns (concurrent_count, concurrent_limit, daily_count, daily_limit) on success.
     """
-    if username in settings.rate_limit_exempt_usernames:
+    exempt = {u.strip() for u in settings.rate_limit_exempt_usernames.split(",") if u.strip()}
+    if username in exempt:
         return 0, 0, 0, 0
 
     _, concurrent_limit, daily_limit, _ = await get_user_quota_info(unix_username, settings)

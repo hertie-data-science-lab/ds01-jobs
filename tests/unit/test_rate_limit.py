@@ -333,7 +333,7 @@ async def test_check_rate_limits_exempt_user_bypasses_limits(tmp_path: Path) -> 
     settings = _test_settings(
         db_path=db_path,
         default_daily_limit=1,
-        rate_limit_exempt_usernames=["ci-bot[bot]"],
+        rate_limit_exempt_usernames="ci-bot[bot]",
     )
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
@@ -354,7 +354,7 @@ async def test_check_rate_limits_non_exempt_user_still_limited(tmp_path: Path) -
     settings = _test_settings(
         db_path=db_path,
         default_daily_limit=1,
-        rate_limit_exempt_usernames=["ci-bot[bot]"],
+        rate_limit_exempt_usernames="ci-bot[bot]",
     )
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
