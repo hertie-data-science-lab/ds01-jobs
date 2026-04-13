@@ -326,6 +326,45 @@ async def test_get_user_quota_info_from_group(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_check_rate_limits_exempt_user_bypasses_limits(tmp_path: Path) -> None:
+    """Exempt usernames skip rate limit checks even when limits are exceeded."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        db_path=db_path,
+        default_daily_limit=1,
+        rate_limit_exempt_usernames=["ci-bot[bot]"],
+    )
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        # Push the CI bot over the daily limit
+        for _ in range(5):
+            await _insert_job(db, username="ci-bot[bot]", status="succeeded")
+        await db.commit()
+        # Should not raise despite 5 > 1 limit
+        result = await check_rate_limits(db, "ci-bot-unix", "ci-bot[bot]", settings)
+    assert result == (0, 0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_check_rate_limits_non_exempt_user_still_limited(tmp_path: Path) -> None:
+    """Non-exempt users are unaffected by the exemption list."""
+    db_path = tmp_path / "test.db"
+    await init_db(db_path=db_path)
+    settings = _test_settings(
+        db_path=db_path,
+        default_daily_limit=1,
+        rate_limit_exempt_usernames=["ci-bot[bot]"],
+    )
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        await _insert_job(db, username="alice", status="succeeded")
+        await db.commit()
+        with pytest.raises(Exception):  # HTTPException 429
+            await check_rate_limits(db, "alice_unix", "alice", settings)
+
+
+@pytest.mark.asyncio
 async def test_get_user_quota_info_no_result_size_in_yaml(tmp_path: Path) -> None:
     """Group without max_result_size_mb falls back to settings default."""
     yaml_path = tmp_path / "resource-limits.yaml"

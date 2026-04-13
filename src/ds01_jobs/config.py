@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # Rate limiting defaults
     default_concurrent_limit: int = 3
     default_daily_limit: int = 20
+    # GitHub usernames that bypass rate limits entirely (e.g. CI bot accounts).
+    rate_limit_exempt_usernames: list[str] = []
 
     # Result size limit
     default_max_result_size_mb: int = 1024
