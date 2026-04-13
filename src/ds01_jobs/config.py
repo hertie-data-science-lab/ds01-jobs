@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Authentication
     github_org: str = "hertie-data-science-lab"
+    # Empty string means org-level gate; a team slug narrows to that team.
+    github_team: str = ""
     key_expiry_days: int = 90
 
     # Dockerfile scanning

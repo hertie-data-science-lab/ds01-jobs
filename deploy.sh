@@ -155,15 +155,32 @@ check_active_jobs() {
 # Deployment steps
 # ---------------------------------------------------------------------------
 setup_system_user() {
+    # Dedicated admin group for ds01-jobs state ownership.
+    # Admins granted membership here can run ds01-job-admin without locking
+    # out the service user or other admins.
+    groupadd -f ds01-admin
+    log "  Ensured ds01-admin group exists"
+
     if id ds01 &>/dev/null; then
         log "  User ds01 already exists"
     else
-        useradd --system --shell /usr/sbin/nologin --home-dir /opt/ds01-jobs ds01
-        log "  Created system user ds01"
+        useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/ds01-jobs ds01
+        log "  Created system user ds01 (home: /var/lib/ds01-jobs)"
     fi
+
+    # Keep home dir aligned with state dir so ~/.cache / ~/.local don't land
+    # in the source tree. -d without -m: only update passwd entry.
+    local current_home
+    current_home="$(getent passwd ds01 | cut -d: -f6)"
+    if [[ "$current_home" != "/var/lib/ds01-jobs" ]]; then
+        usermod -d /var/lib/ds01-jobs ds01
+        log "  Updated ds01 home dir: $current_home -> /var/lib/ds01-jobs"
+    fi
+
     usermod -aG docker ds01 2>/dev/null || true
     usermod -aG ds-admin ds01 2>/dev/null || true
-    log "  Ensured ds01 is in docker and ds-admin groups"
+    usermod -aG ds01-admin ds01 2>/dev/null || true
+    log "  Ensured ds01 is in docker, ds-admin, and ds01-admin groups"
 }
 
 setup_directories() {
@@ -171,15 +188,27 @@ setup_directories() {
     chmod 0755 /etc/ds01-jobs
 
     chmod -R g+rX /opt/ds01-jobs
+
+    # DB directory: owned by service, group-writable by ds01-admin so admins
+    # can run ds01-job-admin. Setgid ensures new files inherit the group.
     mkdir -p /opt/ds01-jobs/data
-    chown -R ds01:ds-admin /opt/ds01-jobs/data
-    chmod 770 /opt/ds01-jobs/data
+    chown -R ds01:ds01-admin /opt/ds01-jobs/data
+    chmod 2770 /opt/ds01-jobs/data
+
+    # Explicitly provision the DB file so whichever principal triggers first
+    # creation doesn't lock out others (root or manual admin runs).
+    if [[ ! -f "$DB_PATH" ]]; then
+        touch "$DB_PATH"
+        log "  Created empty DB at $DB_PATH"
+    fi
+    chown ds01:ds01-admin "$DB_PATH"
+    chmod 0660 "$DB_PATH"
 
     mkdir -p /var/lib/ds01-jobs/workspaces
-    chown ds01:ds-admin /var/lib/ds01-jobs
-    chown ds01:ds-admin /var/lib/ds01-jobs/workspaces
-    chmod 0750 /var/lib/ds01-jobs
-    chmod 0750 /var/lib/ds01-jobs/workspaces
+    chown ds01:ds01-admin /var/lib/ds01-jobs
+    chown ds01:ds01-admin /var/lib/ds01-jobs/workspaces
+    chmod 2750 /var/lib/ds01-jobs
+    chmod 2770 /var/lib/ds01-jobs/workspaces
 
     mkdir -p /var/log/ds01
     touch /var/log/ds01/events.jsonl
@@ -269,16 +298,20 @@ install_systemd_units() {
     cp "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
     cp "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
     cp "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
+    cp "$SCRIPT_DIR/systemd/ds01-revalidate.service" /etc/systemd/system/
+    cp "$SCRIPT_DIR/systemd/ds01-revalidate.timer" /etc/systemd/system/
     log "  Systemd unit files copied"
 
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
 
-    systemctl enable ds01-api ds01-runner ds01-cloudflared
+    systemctl enable ds01-api ds01-runner ds01-cloudflared ds01-revalidate.timer
     log "  Services enabled"
 
     systemctl restart ds01-api ds01-runner ds01-cloudflared
-    log "  Services restarted"
+    # Timers don't "restart" — start if not active, otherwise leave the schedule.
+    systemctl start ds01-revalidate.timer
+    log "  Services restarted; revalidation timer started"
 }
 
 verify_health() {

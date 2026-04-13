@@ -19,6 +19,7 @@ Environment=UV_PYTHON=/usr/local/share/uv-python/cpython-3.13-linux-x86_64-gnu/b
 Environment=UV_CACHE_DIR=/var/lib/ds01-jobs/uv-cache
 Restart=always
 RestartSec=5
+UMask=0002
 EnvironmentFile=/etc/ds01-jobs/env
 
 # Logging

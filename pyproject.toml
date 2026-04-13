@@ -18,6 +18,7 @@ dependencies = [
 [project.scripts]
 ds01-job-admin = "ds01_jobs.cli:app"
 ds01-job-runner = "ds01_jobs.runner:cli_main"
+ds01-job-revalidate = "ds01_jobs.revalidate:app"
 ds01-submit = "ds01_jobs.submit:app"
 
 [build-system]
