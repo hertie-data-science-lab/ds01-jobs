@@ -7,11 +7,9 @@ Prerequisites:
     - ds01-jobs API running at http://127.0.0.1:8765
     - ds01-job-runner active and connected
     - Docker available with GPU access
-    - Test repo https://github.com/hertie-data-science-lab/ds01-test-job must exist
-      with a Dockerfile that runs ``nvidia-smi > /output/gpu.txt``
-
-If the test repo does not exist yet, the test will fail with a clear clone
-error. Creating the repo is a separate manual step.
+    - The ``fixtures/smoke`` branch must exist on origin (this repo).
+      Source-of-truth lives at ``tests/integration/fixtures/scenarios/smoke/``;
+      publish via ``scripts/sync-test-fixtures.sh``.
 
 Marked ``@pytest.mark.integration`` so it only runs on the self-hosted GPU
 runner via Tier 2 CI.
@@ -28,8 +26,8 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-# Known minimal test repo - Dockerfile runs nvidia-smi and writes to /output/
-TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-test-job"
+TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-jobs"
+TEST_REPO_BRANCH = "fixtures/smoke"
 
 API_BASE_URL = "http://127.0.0.1:8765"
 
@@ -90,7 +88,10 @@ def test_full_job_lifecycle(
     }
 
     # 1. Submit a job via ds01-submit run
-    result = _run(["ds01-submit", "run", TEST_REPO_URL, "--json"], env=env)
+    result = _run(
+        ["ds01-submit", "run", TEST_REPO_URL, "--branch", TEST_REPO_BRANCH, "--json"],
+        env=env,
+    )
     assert result.returncode == 0, f"Job submission failed: {result.stderr}"
 
     submit_data = json.loads(result.stdout)
