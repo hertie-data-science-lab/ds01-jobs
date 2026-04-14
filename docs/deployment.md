@@ -13,11 +13,11 @@ these dependencies.
 
 ### uv
 
-`uv` must be available somewhere in the system PATH or in a common location under
-`/home/datasciencelab`. Install it via the official installer:
+`uv` must be installed at `/usr/local/bin/uv` (system-wide). Install via the official
+installer as root:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 ```
 
 Verify: `uv --version`
@@ -79,17 +79,23 @@ The script runs these steps in order:
 
 ### 1. Create system user
 
-Creates a `ds01` system user (no login shell, home at `/opt/ds01-jobs`) if it does not
-already exist. Adds `ds01` to the `docker` and `ds-admin` groups.
+Creates a `ds01` system user (no login shell, home at `/var/lib/ds01-jobs`) if it does not
+already exist. Creates the `ds01-admin` group if it does not exist. Adds `ds01` to the
+`docker`, `ds-admin`, and `ds01-admin` groups.
 
 ### 2. Set up directories
 
 | Path | Owner | Mode | Purpose |
 |------|-------|------|---------|
 | `/etc/ds01-jobs/` | root:root | 0755 | Config directory |
-| `/opt/ds01-jobs/data/` | ds01:ds-admin | 770 | SQLite database |
-| `/var/lib/ds01-jobs/workspaces/` | ds01:ds-admin | 0750 | Job workspaces |
+| `/opt/ds01-jobs/data/` | ds01:ds01-admin | 2770 | SQLite database (setgid — new files inherit group) |
+| `/opt/ds01-jobs/data/jobs.db` | ds01:ds01-admin | 0660 | DB file explicitly provisioned by deploy.sh |
+| `/var/lib/ds01-jobs/` | ds01:ds01-admin | 2750 | State root (setgid) |
+| `/var/lib/ds01-jobs/workspaces/` | ds01:ds01-admin | 2770 | Job workspaces (setgid) |
 | `/var/log/ds01/events.jsonl` | ds01:ds01 | - | Event log |
+
+Admins who need to run `ds01-job-admin` should be added to `ds01-admin` via
+`sudo usermod -aG ds01-admin <user>`.
 
 ### 3. Set up environment file
 
@@ -117,23 +123,35 @@ Copies `config/sudoers.d/ds01-jobs` to `/etc/sudoers.d/ds01-jobs` (0440). Valida
 
 ### 7. Install and start systemd services
 
-Copies the three unit files to `/etc/systemd/system/`, runs `daemon-reload`, enables all
-three services, then restarts them. Verifies that all services are active and that the API
-health endpoint returns `{"status":"ok"}`.
+Copies the four unit files to `/etc/systemd/system/`, runs `daemon-reload`, enables all
+units, then restarts them. Verifies that all services are active and that the API
+health endpoint returns `{"status":"ok"}`. The four units installed are:
+
+- `ds01-api.service`
+- `ds01-runner.service`
+- `ds01-cloudflared.service`
+- `ds01-revalidate.timer` + `ds01-revalidate.service` (nightly key revalidation)
 
 ---
 
 ## Systemd Services
 
-Three services run as the `ds01` user. All load environment from `/etc/ds01-jobs/env`.
+Four services run as the `ds01` user. All load environment from `/etc/ds01-jobs/env`.
 
 | Service | Binary | Purpose |
 |---------|--------|---------|
 | `ds01-api` | `uvicorn ds01_jobs.app:app --host 127.0.0.1 --port 8765` | FastAPI job submission API |
 | `ds01-runner` | `ds01-job-runner` | Asyncio poll loop - dispatches queued jobs to Docker |
 | `ds01-cloudflared` | `cloudflared --no-autoupdate tunnel run` | Cloudflare Tunnel - public HTTPS ingress |
+| `ds01-revalidate` (oneshot) | `ds01-job-revalidate` | Nightly GitHub access revalidation (run by timer) |
 
-All three services restart automatically on failure (`Restart=always`, `RestartSec=5`).
+All long-running services restart automatically on failure (`Restart=always`, `RestartSec=5`).
+
+The `ds01-revalidate.timer` fires daily at 03:17 (with up to 10 min random jitter) and runs
+`ds01-revalidate.service`. It loops every active API key and revokes keys for users who are
+no longer members of the configured GitHub org/team. Revocations are appended to
+`/var/log/ds01/events.jsonl`. The timer is persistent - if the host was offline at the
+scheduled time, it fires at next boot.
 
 `ds01-cloudflared` will not start until the API health endpoint responds. Its `ExecStartPre`
 polls `http://127.0.0.1:8765/health` for up to 30 seconds before allowing the tunnel to
@@ -171,6 +189,7 @@ systemd reads it before dropping privileges to the `ds01` user.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DS01_JOBS_GITHUB_ORG` | `hertie-data-science-lab` | GitHub org for API key validation |
+| `DS01_JOBS_GITHUB_TEAM` | _(empty)_ | Team slug within the org. When set, key-create and nightly revalidation gate on team membership instead of org membership. Create the team and add users before setting this. |
 | `DS01_JOBS_KEY_EXPIRY_DAYS` | `90` | Default API key lifetime in days |
 
 ### Rate limiting
@@ -292,6 +311,16 @@ Issues a new key and revokes the old one atomically.
 ds01-job-admin key-rotate <github_username>
 ```
 
+### Revalidate keys manually
+
+```bash
+# Dry-run: see which keys would be revoked without modifying the database
+ds01-job-revalidate --dry-run
+
+# Run immediately (timer also runs this nightly)
+ds01-job-revalidate
+```
+
 All commands support `--json` for machine-readable output.
 
 ---
@@ -312,6 +341,9 @@ journalctl -u ds01-api -f
 
 # Follow runner logs
 journalctl -u ds01-runner -f
+
+# Check revalidation timer is scheduled
+systemctl list-timers ds01-revalidate.timer
 ```
 
 A healthy deployment shows all three services as `active (running)` and the health endpoint
