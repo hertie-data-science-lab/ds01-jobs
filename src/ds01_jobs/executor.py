@@ -378,11 +378,14 @@ class JobExecutor:
             docker_prefix = [str(self.settings.docker_bin)]
 
         # When running via sudo -u, the Docker wrapper at /usr/local/bin/docker
-        # intercepts --gpus all and dynamically allocates GPUs via ds01-infra's
-        # gpu_allocator_v2.py (respects per-user quotas, MIG partitioning, etc.).
+        # parses --gpus <N> and dispatches to ds01-infra's gpu_allocator_v2.py:
+        # allocate-external for N=1, allocate-multi for N>1. It rewrites the arg
+        # to --gpus device=UUID1,UUID2,... so the container sees exactly the
+        # allocated GPUs. Passing "all" would under-honour gpu_count (wrapper
+        # always allocated one GPU regardless).
         # Without sudo -u (dev mode), fall back to NVIDIA_VISIBLE_DEVICES.
         if unix_username:
-            gpu_flag = ["--gpus", "all"]
+            gpu_flag = ["--gpus", str(gpu_count)]
         else:
             gpu_devices = ",".join(str(i) for i in range(gpu_count))
             gpu_flag = ["-e", f"NVIDIA_VISIBLE_DEVICES={gpu_devices}"]

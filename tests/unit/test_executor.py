@@ -668,6 +668,48 @@ async def test_run_uses_sudo_with_interface_label(
     assert "--label" in run_call
     label_idx = run_call.index("--label")
     assert run_call[label_idx + 1] == "ds01.interface=api"
+    # Verify --gpus carries the requested count (not "all") so the wrapper can
+    # dispatch to allocate-external or allocate-multi correctly.
+    assert "--gpus" in run_call
+    gpus_idx = run_call.index("--gpus")
+    assert run_call[gpus_idx + 1] == "1"
+
+
+@pytest.mark.asyncio
+@patch("ds01_jobs.executor.asyncio.create_subprocess_exec")
+async def test_run_passes_numeric_gpu_count(
+    mock_exec: AsyncMock,
+    executor_settings: Settings,
+    db_path: Path,
+) -> None:
+    """Multi-GPU requests forward the count to --gpus so the wrapper routes to allocate-multi."""
+    mock_exec.return_value = _mock_process(0)
+    executor = JobExecutor(executor_settings)
+
+    await executor.execute(
+        JOB_ID,
+        REPO_URL,
+        BRANCH,
+        gpu_count=3,
+        timeout_seconds=None,
+        db_path=db_path,
+        unix_username=UNIX_USER,
+    )
+
+    docker = str(executor_settings.docker_bin)
+    run_call = None
+    for c in mock_exec.call_args_list:
+        args = c[0] if c[0] else ()
+        if docker in args:
+            docker_idx = args.index(docker)
+            if len(args) > docker_idx + 1 and args[docker_idx + 1] == "run":
+                run_call = args
+                break
+
+    assert run_call is not None
+    gpus_idx = run_call.index("--gpus")
+    assert run_call[gpus_idx + 1] == "3"
+    assert "all" not in run_call
 
 
 @pytest.mark.asyncio
