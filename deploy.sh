@@ -231,9 +231,13 @@ setup_env_file() {
         log "  $ENV_FILE already exists (preserved)"
     fi
 
-    # Check if TUNNEL_TOKEN is empty
+    # Check if TUNNEL_TOKEN is empty. Only prompt if cloudflared is actually
+    # installed — otherwise the token has nowhere to land and the prompt is
+    # just noise. install_cloudflared() runs before this step in main().
     if grep -q '^TUNNEL_TOKEN=$' "$ENV_FILE" 2>/dev/null; then
-        if $YES; then
+        if ! command -v cloudflared &>/dev/null; then
+            log "  TUNNEL_TOKEN empty; cloudflared not installed — skipping prompt"
+        elif $YES; then
             log "  WARNING: TUNNEL_TOKEN is empty in $ENV_FILE - set it manually"
         elif ! $DRY_RUN; then
             echo ""
@@ -304,6 +308,16 @@ install_sudoers() {
 }
 
 install_systemd_units() {
+    # The cloudflared unit is only wired up when the binary is actually
+    # present. External Cloudflare Tunnel access depends on Hertie IT
+    # provisioning (see issue #81) — until that's done, the unit has no
+    # executable to run and leaving it enabled would fail the deploy and
+    # produce a perpetually-failed systemctl status entry.
+    local have_cloudflared=false
+    if command -v cloudflared &>/dev/null; then
+        have_cloudflared=true
+    fi
+
     # Ensure repo files are readable by root (symlinks expose target permissions)
     chmod 644 \
         "$SCRIPT_DIR/systemd/ds01-api.service" \
@@ -316,8 +330,16 @@ install_systemd_units() {
     chmod 755 "$SCRIPT_DIR/systemd/actions-runner.service.d"
 
     # Symlink so live units always reflect the repo — no drift possible
-    for unit in ds01-api.service ds01-runner.service ds01-cloudflared.service \
-                ds01-revalidate.service ds01-revalidate.timer; do
+    local units=(ds01-api.service ds01-runner.service
+                 ds01-revalidate.service ds01-revalidate.timer)
+    if $have_cloudflared; then
+        units+=(ds01-cloudflared.service)
+    else
+        # Clean up a stale symlink from a prior deploy when cloudflared is no
+        # longer installed. daemon-reload below picks up the removal.
+        rm -f /etc/systemd/system/ds01-cloudflared.service
+    fi
+    for unit in "${units[@]}"; do
         ln -sf "$SCRIPT_DIR/systemd/$unit" /etc/systemd/system/
     done
     log "  Systemd unit files symlinked"
@@ -332,10 +354,19 @@ install_systemd_units() {
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
 
-    systemctl enable ds01-api ds01-runner ds01-cloudflared ds01-revalidate.timer
+    local enable_units=(ds01-api ds01-runner ds01-revalidate.timer)
+    local restart_units=(ds01-api ds01-runner)
+    if $have_cloudflared; then
+        enable_units+=(ds01-cloudflared)
+        restart_units+=(ds01-cloudflared)
+    else
+        log "  cloudflared not installed — skipping ds01-cloudflared enable/restart (see issue #81)"
+    fi
+
+    systemctl enable "${enable_units[@]}"
     log "  Services enabled"
 
-    systemctl restart ds01-api ds01-runner ds01-cloudflared
+    systemctl restart "${restart_units[@]}"
     # Timers don't "restart" — start if not active, otherwise leave the schedule.
     systemctl start ds01-revalidate.timer
     log "  Services restarted; revalidation timer started"
@@ -404,11 +435,12 @@ main() {
         log "The following steps would be executed:"
     fi
 
-    # Deployment steps
+    # Deployment steps. install_cloudflared runs before setup_env_file so the
+    # latter can skip the tunnel-token prompt when cloudflared isn't available.
     step "Create system user"       setup_system_user
     step "Setup directories"        setup_directories
-    step "Setup environment file"   setup_env_file
     step "Install cloudflared"      install_cloudflared
+    step "Setup environment file"   setup_env_file
     step "Setup Python environment" setup_python_env
     step "Install sudoers drop-in"  install_sudoers
     step "Install systemd units"    install_systemd_units
