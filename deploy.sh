@@ -159,33 +159,62 @@ check_active_jobs() {
 # Deployment steps
 # ---------------------------------------------------------------------------
 setup_system_user() {
+    # Dedicated admin group for ds01-jobs state ownership.
+    # Admins granted membership here can run ds01-job-admin without locking
+    # out the service user or other admins.
+    groupadd -f ds01-admin
+    log "  Ensured ds01-admin group exists"
+
     if id ds01 &>/dev/null; then
         log "  User ds01 already exists"
     else
-        useradd --system --shell /usr/sbin/nologin --home-dir /opt/ds01-jobs ds01
-        log "  Created system user ds01"
+        useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/ds01-jobs ds01
+        log "  Created system user ds01 (home: /var/lib/ds01-jobs)"
     fi
+
+    # Keep home dir aligned with state dir so ~/.cache / ~/.local don't land
+    # in the source tree. -d without -m: only update passwd entry.
+    local current_home
+    current_home="$(getent passwd ds01 | cut -d: -f6)"
+    if [[ "$current_home" != "/var/lib/ds01-jobs" ]]; then
+        usermod -d /var/lib/ds01-jobs ds01
+        log "  Updated ds01 home dir: $current_home -> /var/lib/ds01-jobs"
+    fi
+
     usermod -aG docker ds01 2>/dev/null || true
     usermod -aG ds-admin ds01 2>/dev/null || true
-    log "  Ensured ds01 is in docker and ds-admin groups"
+    usermod -aG ds01-admin ds01 2>/dev/null || true
+    log "  Ensured ds01 is in docker, ds-admin, and ds01-admin groups"
 }
 
 setup_directories() {
     mkdir -p /etc/ds01-jobs
     chmod 0755 /etc/ds01-jobs
 
-    # Group-readable for ds-admin members, excluding .git to avoid git index corruption
+    # Group-readable for ds-admin members. Exclude .git (chmod -R corrupts the
+    # index) and data/ (handled separately below with setgid + 2770 so new files
+    # inherit ds01-admin ownership for ds01-job-admin runs).
     find /opt/ds01-jobs -not -path '/opt/ds01-jobs/.git*' -not -path '/opt/ds01-jobs/data*' \
         -exec chmod g+rX {} +
+
     mkdir -p /opt/ds01-jobs/data
-    chown -R ds01:ds-admin /opt/ds01-jobs/data
-    chmod 770 /opt/ds01-jobs/data
+    chown -R ds01:ds01-admin /opt/ds01-jobs/data
+    chmod 2770 /opt/ds01-jobs/data
+
+    # Explicitly provision the DB file so whichever principal triggers first
+    # creation doesn't lock out others (root or manual admin runs).
+    if [[ ! -f "$DB_PATH" ]]; then
+        touch "$DB_PATH"
+        log "  Created empty DB at $DB_PATH"
+    fi
+    chown ds01:ds01-admin "$DB_PATH"
+    chmod 0660 "$DB_PATH"
 
     mkdir -p /var/lib/ds01-jobs/workspaces
-    chown ds01:ds-admin /var/lib/ds01-jobs
-    chown ds01:ds-admin /var/lib/ds01-jobs/workspaces
-    chmod 0750 /var/lib/ds01-jobs
-    chmod 0750 /var/lib/ds01-jobs/workspaces
+    chown ds01:ds01-admin /var/lib/ds01-jobs
+    chown ds01:ds01-admin /var/lib/ds01-jobs/workspaces
+    chmod 2750 /var/lib/ds01-jobs
+    chmod 2770 /var/lib/ds01-jobs/workspaces
 
     mkdir -p /var/log/ds01
     touch /var/log/ds01/events.jsonl
@@ -247,23 +276,21 @@ install_cloudflared() {
 }
 
 setup_python_env() {
-    log "  Running uv sync --locked..."
-    cd "$INSTALL_DIR"
-    "$UV_BIN" sync --locked
-    cd - >/dev/null
-
-    # Ensure ds01 service user can read and execute the venv.
-    # uv sync runs as root so files are root:root — fix the group so ds01
-    # (which is in ds-admin) can access them.
-    chown -R root:ds-admin "$INSTALL_DIR/.venv"
-    chmod -R g+rX "$INSTALL_DIR/.venv"
-    log "  .venv owned root:ds-admin, group-readable for ds01 service user"
+    local venv_dir="/var/lib/ds01-jobs/venv"
+    log "  Running uv sync --locked as ds01 (venv: ${venv_dir})..."
+    # Sync as the ds01 service user so the venv is owned correctly.
+    # Uses system uv and uv-managed Python 3.13 (world-readable under /usr/local).
+    sudo -u ds01 \
+        UV_PROJECT_ENVIRONMENT="$venv_dir" \
+        UV_PYTHON_INSTALL_DIR=/usr/local/share/uv-python \
+        UV_PYTHON=/usr/local/share/uv-python/cpython-3.13-linux-x86_64-gnu/bin/python3.13 \
+        /usr/local/bin/uv sync --locked --project "$INSTALL_DIR"
 
     # Verify entrypoints
     local entrypoints=(ds01-job-admin ds01-job-runner ds01-submit)
     for ep in "${entrypoints[@]}"; do
-        if [[ ! -x "$INSTALL_DIR/.venv/bin/$ep" ]]; then
-            fail "Entrypoint $ep not found in .venv/bin/"
+        if [[ ! -x "${venv_dir}/bin/$ep" ]]; then
+            fail "Entrypoint $ep not found in ${venv_dir}/bin/"
         fi
     done
     log "  Python environment ready, all entrypoints verified"
@@ -282,14 +309,17 @@ install_systemd_units() {
         "$SCRIPT_DIR/systemd/ds01-api.service" \
         "$SCRIPT_DIR/systemd/ds01-runner.service" \
         "$SCRIPT_DIR/systemd/ds01-cloudflared.service" \
+        "$SCRIPT_DIR/systemd/ds01-revalidate.service" \
+        "$SCRIPT_DIR/systemd/ds01-revalidate.timer" \
         "$SCRIPT_DIR/systemd/actions-runner.service" \
         "$SCRIPT_DIR/systemd/actions-runner.service.d/resilience.conf"
     chmod 755 "$SCRIPT_DIR/systemd/actions-runner.service.d"
 
     # Symlink so live units always reflect the repo — no drift possible
-    ln -sf "$SCRIPT_DIR/systemd/ds01-api.service" /etc/systemd/system/
-    ln -sf "$SCRIPT_DIR/systemd/ds01-runner.service" /etc/systemd/system/
-    ln -sf "$SCRIPT_DIR/systemd/ds01-cloudflared.service" /etc/systemd/system/
+    for unit in ds01-api.service ds01-runner.service ds01-cloudflared.service \
+                ds01-revalidate.service ds01-revalidate.timer; do
+        ln -sf "$SCRIPT_DIR/systemd/$unit" /etc/systemd/system/
+    done
     log "  Systemd unit files symlinked"
 
     # Actions runner drop-in (base unit is owned by the runner installer)
@@ -302,11 +332,13 @@ install_systemd_units() {
     systemctl daemon-reload
     log "  systemctl daemon-reload complete"
 
-    systemctl enable ds01-api ds01-runner ds01-cloudflared
+    systemctl enable ds01-api ds01-runner ds01-cloudflared ds01-revalidate.timer
     log "  Services enabled"
 
     systemctl restart ds01-api ds01-runner ds01-cloudflared
-    log "  Services restarted"
+    # Timers don't "restart" — start if not active, otherwise leave the schedule.
+    systemctl start ds01-revalidate.timer
+    log "  Services restarted; revalidation timer started"
 }
 
 verify_health() {

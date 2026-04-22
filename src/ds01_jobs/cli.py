@@ -225,6 +225,65 @@ def check_org_membership(username: str, org: str) -> bool:
     raise typer.Exit(code=1)
 
 
+def check_team_membership(username: str, org: str, team: str, token: str) -> bool:
+    """Check GitHub team membership via the team memberships endpoint.
+
+    Uses GET /orgs/{org}/teams/{team}/memberships/{username}. Returns True
+    only if the user's membership state is ``active`` (pending invitations
+    don't count).
+
+    Args:
+        username: GitHub username.
+        org: GitHub organisation name.
+        team: Team slug (not display name).
+        token: GitHub token with read:org scope.
+
+    Returns:
+        True if the user is an active team member, False otherwise.
+    """
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
+    url = f"https://api.github.com/orgs/{org}/teams/{team}/memberships/{username}"
+
+    try:
+        response = httpx.get(url, headers=headers, timeout=10.0)
+    except httpx.HTTPError as exc:
+        typer.echo(f"Error checking GitHub team membership: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if response.status_code == 404:
+        return False
+    if response.status_code == 200:
+        return bool(response.json().get("state") == "active")
+
+    typer.echo(
+        f"Unexpected response from GitHub API ({response.status_code}) "
+        "while checking team membership. Ensure your token has read:org scope.",
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
+def verify_github_access(username: str, settings: Settings) -> bool:
+    """Check whether a user has access via the configured GH gate.
+
+    When ``settings.github_team`` is set, gates on membership of that team
+    within ``settings.github_org``. Otherwise falls back to org-level
+    membership. Bot users (``[bot]`` suffix) always go through the org-level
+    App installation check — teams don't apply to bots.
+    """
+    if settings.github_team and not username.endswith("[bot]"):
+        token = _resolve_github_token()
+        if not token:
+            typer.echo(
+                "A GitHub token with read:org scope is required to verify team membership. "
+                "Run 'gh auth login' or set GITHUB_TOKEN.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        return check_team_membership(username, settings.github_org, settings.github_team, token)
+    return check_org_membership(username, settings.github_org)
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     """Ensure the api_keys table exists and apply any pending migrations."""
     conn.executescript(SCHEMA_SQL)
@@ -280,9 +339,13 @@ def key_create(
         typer.echo(f"Error: Unix user {unix_username!r} does not exist on this server", err=True)
         raise typer.Exit(code=1)
 
-    # Check GitHub org membership
-    if not check_org_membership(github_username, settings.github_org):
-        typer.echo(f"Error: {github_username} is not a member of {settings.github_org}", err=True)
+    if not verify_github_access(github_username, settings):
+        gate = (
+            f"team {settings.github_org}/{settings.github_team}"
+            if settings.github_team and not github_username.endswith("[bot]")
+            else f"org {settings.github_org}"
+        )
+        typer.echo(f"Error: {github_username} is not a member of {gate}", err=True)
         raise typer.Exit(code=1)
 
     days = parse_duration(expires)

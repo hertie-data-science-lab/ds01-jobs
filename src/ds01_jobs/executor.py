@@ -378,11 +378,14 @@ class JobExecutor:
             docker_prefix = [str(self.settings.docker_bin)]
 
         # When running via sudo -u, the Docker wrapper at /usr/local/bin/docker
-        # intercepts --gpus all and dynamically allocates GPUs via ds01-infra's
-        # gpu_allocator_v2.py (respects per-user quotas, MIG partitioning, etc.).
+        # parses --gpus <N> and dispatches to ds01-infra's gpu_allocator_v2.py:
+        # allocate-external for N=1, allocate-multi for N>1. It rewrites the arg
+        # to --gpus device=UUID1,UUID2,... so the container sees exactly the
+        # allocated GPUs. Passing "all" would under-honour gpu_count (wrapper
+        # always allocated one GPU regardless).
         # Without sudo -u (dev mode), fall back to NVIDIA_VISIBLE_DEVICES.
         if unix_username:
-            gpu_flag = ["--gpus", "all"]
+            gpu_flag = ["--gpus", str(gpu_count)]
         else:
             gpu_devices = ",".join(str(i) for i in range(gpu_count))
             gpu_flag = ["-e", f"NVIDIA_VISIBLE_DEVICES={gpu_devices}"]
@@ -435,58 +438,67 @@ class JobExecutor:
         if proc.returncode != 0:
             logger.warning("Failed to collect results for %s: %s", job_id, stderr.decode().strip())
 
+    async def _run_docker(
+        self, docker_prefix: list[str], args: list[str], what: str, job_id: str
+    ) -> tuple[int, str]:
+        """Run a docker subcommand, capture stderr, log failures at WARNING.
+
+        Returns (returncode, stderr). Non-zero exits are logged but don't raise —
+        cleanup is best-effort.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *docker_prefix,
+                *args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr_bytes = await proc.communicate()
+            stderr = stderr_bytes.decode(errors="replace").strip()
+            if proc.returncode != 0:
+                logger.warning(
+                    "%s failed for job %s (exit=%d): %s", what, job_id, proc.returncode, stderr
+                )
+            return proc.returncode or 0, stderr
+        except Exception as exc:
+            logger.warning("%s raised for job %s: %s", what, job_id, exc)
+            return -1, str(exc)
+
     async def _cleanup(self, job_id: str) -> None:
-        """Remove container, image, and prune build cache."""
+        """Remove container, image, and prune build cache. Best-effort; logs failures."""
         unix_username = self._unix_username
         if unix_username:
             docker_prefix = self._sudo_docker(unix_username)
         else:
             docker_prefix = [str(self.settings.docker_bin)]
 
-        # Remove container
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
-                "rm",
-                "-f",
-                f"ds01-job-{job_id}",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-        except Exception:
-            logger.debug("Failed to remove container for job %s", job_id, exc_info=True)
+        container = f"ds01-job-{job_id}"
 
-        # Remove image
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
-                "image",
-                "rm",
-                "-f",
-                f"ds01-job-{job_id}",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-        except Exception:
-            logger.debug("Failed to remove image for job %s", job_id, exc_info=True)
+        rc, _ = await self._run_docker(
+            docker_prefix, ["rm", "-f", container], "container rm", job_id
+        )
 
-        # Prune build cache
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *docker_prefix,
-                "builder",
-                "prune",
-                "--force",
-                "--filter",
-                "until=1h",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+        # Verify the container is actually gone. If `docker rm -f` reported success
+        # but inspect still finds it, something upstream is blocking removal — log
+        # loudly so the allocator's self-heal isn't masking a systemic issue.
+        if rc == 0:
+            inspect_rc, _ = await self._run_docker(
+                docker_prefix, ["inspect", container], "post-rm verify", job_id
             )
-            await proc.wait()
-        except Exception:
-            logger.debug("Failed to prune build cache for job %s", job_id, exc_info=True)
+            if inspect_rc == 0:
+                logger.error(
+                    "Container %s still present after rm -f reported success — "
+                    "allocator quota will remain held until release-stale runs",
+                    container,
+                )
+
+        await self._run_docker(docker_prefix, ["image", "rm", "-f", container], "image rm", job_id)
+        await self._run_docker(
+            docker_prefix,
+            ["builder", "prune", "--force", "--filter", "until=1h"],
+            "builder prune",
+            job_id,
+        )
 
     async def kill_current_process(self, job_id: str) -> None:
         """Kill the currently running subprocess and its Docker container.
