@@ -4,5 +4,9 @@
 # Deployed by: /opt/ds01-jobs/deploy.sh
 ds01 ALL=(ALL) NOPASSWD: /usr/local/bin/docker
 
-# Allow CI runner (datasciencelab) to restart ds01 services
-datasciencelab ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart ds01-api, /usr/bin/systemctl restart ds01-runner, /usr/bin/systemctl restart ds01-api ds01-runner
+# Allow CI runner (datasciencelab) to reload systemd and restart ds01 services
+# Required by Tier 2 CI workflow (ci-integration.yml deploy step)
+datasciencelab ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload, \
+                                   /usr/bin/systemctl restart ds01-api, \
+                                   /usr/bin/systemctl restart ds01-runner, \
+                                   /usr/bin/systemctl restart ds01-api ds01-runner

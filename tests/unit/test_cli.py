@@ -9,7 +9,14 @@ import bcrypt
 import pytest
 from typer.testing import CliRunner
 
-from ds01_jobs.cli import _resolve_github_token, app, generate_api_key, parse_duration
+from ds01_jobs.cli import (
+    _resolve_github_token,
+    app,
+    check_team_membership,
+    generate_api_key,
+    parse_duration,
+    verify_github_access,
+)
 from ds01_jobs.database import SCHEMA_SQL
 
 runner = CliRunner()
@@ -29,7 +36,12 @@ def tmp_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         lambda _env_file=None, **kw: type(
             "S",
             (),
-            {"db_path": db_path, "github_org": "hertie-data-science-lab", "key_expiry_days": 90},
+            {
+                "db_path": db_path,
+                "github_org": "hertie-data-science-lab",
+                "github_team": "",
+                "key_expiry_days": 90,
+            },
         )(),
     )
     # Also patch get_db_sync to use temp path
@@ -397,6 +409,87 @@ def test_key_rotate_json(tmp_db, mock_github_member, mock_unix_user_valid):
     data = json.loads(result.output)
     assert data["key"].startswith("ds01_")
     assert data["username"] == "researcher1"
+
+
+# --- team membership tests ---
+
+
+def _stub_httpx_get(status_code: int, json_body: dict | None = None):
+    class _Resp:
+        def __init__(self):
+            self.status_code = status_code
+
+        def json(self):
+            return json_body or {}
+
+    def _get(url, headers=None, timeout=None):  # noqa: ARG001
+        return _Resp()
+
+    return _get
+
+
+def test_check_team_membership_active(monkeypatch: pytest.MonkeyPatch):
+    """200 with state=active returns True."""
+    monkeypatch.setattr("ds01_jobs.cli.httpx.get", _stub_httpx_get(200, {"state": "active"}))
+    assert check_team_membership("alice", "org", "team", "tok") is True
+
+
+def test_check_team_membership_pending(monkeypatch: pytest.MonkeyPatch):
+    """200 with state=pending returns False (invite not accepted)."""
+    monkeypatch.setattr("ds01_jobs.cli.httpx.get", _stub_httpx_get(200, {"state": "pending"}))
+    assert check_team_membership("alice", "org", "team", "tok") is False
+
+
+def test_check_team_membership_not_found(monkeypatch: pytest.MonkeyPatch):
+    """404 returns False."""
+    monkeypatch.setattr("ds01_jobs.cli.httpx.get", _stub_httpx_get(404))
+    assert check_team_membership("alice", "org", "team", "tok") is False
+
+
+# --- verify_github_access dispatch tests ---
+
+
+def _settings(org: str = "myorg", team: str = "") -> object:
+    return type("S", (), {"github_org": org, "github_team": team})()
+
+
+def test_verify_github_access_org_gate(monkeypatch: pytest.MonkeyPatch):
+    """Empty team -> org membership check is used."""
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "ds01_jobs.cli.check_org_membership",
+        lambda u, o: calls.append((u, o)) or True,
+    )
+    assert verify_github_access("alice", _settings(team="")) is True
+    assert calls == [("alice", "myorg")]
+
+
+def test_verify_github_access_team_gate(monkeypatch: pytest.MonkeyPatch):
+    """Non-empty team -> team membership check is used."""
+    monkeypatch.setattr("ds01_jobs.cli._resolve_github_token", lambda: "tok")
+    calls: list[tuple[str, str, str, str]] = []
+    monkeypatch.setattr(
+        "ds01_jobs.cli.check_team_membership",
+        lambda u, o, t, tok: calls.append((u, o, t, tok)) or True,
+    )
+    assert verify_github_access("alice", _settings(team="ds01-access")) is True
+    assert calls == [("alice", "myorg", "ds01-access", "tok")]
+
+
+def test_verify_github_access_bot_bypasses_team(monkeypatch: pytest.MonkeyPatch):
+    """Bot users always go through org-level App check, even when team is set."""
+    org_calls: list[str] = []
+    monkeypatch.setattr(
+        "ds01_jobs.cli.check_org_membership",
+        lambda u, o: org_calls.append(u) or True,
+    )
+    # If team path were used we'd blow up without a team stub — ensure it's not.
+    monkeypatch.setattr(
+        "ds01_jobs.cli.check_team_membership",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("should not be called")),
+    )
+    assert verify_github_access("ds01-ci-bot[bot]", _settings(team="ds01-access")) is True
+    assert org_calls == ["ds01-ci-bot[bot]"]
 
 
 def test_key_rotate_old_hash_changes(tmp_db, mock_github_member, mock_unix_user_valid):

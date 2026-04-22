@@ -18,8 +18,6 @@ runner via Tier 2 CI.
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import time
 
 import pytest
@@ -29,52 +27,15 @@ pytestmark = pytest.mark.integration
 TEST_REPO_URL = "https://github.com/hertie-data-science-lab/ds01-jobs"
 TEST_REPO_BRANCH = "fixtures/smoke"
 
-API_BASE_URL = "http://127.0.0.1:8765"
-
-# Maximum time to wait for a job to reach a terminal state (seconds)
 POLL_TIMEOUT = 300
-
-# Backoff parameters for polling (seconds)
 INITIAL_BACKOFF = 2
 MAX_BACKOFF = 30
-
-
-def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess with merged environment and return the result."""
-    merged_env = {**os.environ, **(env or {})}
-    return subprocess.run(args, capture_output=True, text=True, env=merged_env)
-
-
-@pytest.fixture()
-def api_key() -> str:
-    """Return the pre-provisioned CI API key.
-
-    Reads ``DS01_CI_API_KEY`` from the environment (set via the ``DS01_CI_API_KEY``
-    GitHub Actions secret). The key is issued once by an admin via::
-
-        ds01-job-admin key-create ds01-ci-bot[bot] datasciencelab --expires 365d --json
-
-    and stored as a repository secret. Tests are skipped if the variable is unset
-    (e.g. local runs without the secret configured).
-    """
-    key = os.environ.get("DS01_CI_API_KEY")
-    if not key:
-        pytest.skip(
-            "DS01_CI_API_KEY not set — provision via 'ds01-job-admin key-create' "
-            "and store as a GitHub Actions secret"
-        )
-    return key
-
-
-@pytest.fixture()
-def api_base_url() -> str:
-    """Return the local API base URL."""
-    return API_BASE_URL
 
 
 def test_full_job_lifecycle(
     api_key: str,
     api_base_url: str,
+    subprocess_runner,
     tmp_path: pytest.TempPathFactory,
 ) -> None:
     """Submit a job, wait for completion, verify success, download results."""
@@ -84,7 +45,7 @@ def test_full_job_lifecycle(
     }
 
     # 1. Submit a job via ds01-submit run
-    result = _run(
+    result = subprocess_runner(
         ["ds01-submit", "run", TEST_REPO_URL, "--branch", TEST_REPO_BRANCH, "--json"],
         env=env,
     )
@@ -100,7 +61,7 @@ def test_full_job_lifecycle(
     final_status = None
 
     while time.monotonic() < deadline:
-        result = _run(["ds01-submit", "status", job_id, "--json"], env=env)
+        result = subprocess_runner(["ds01-submit", "status", job_id, "--json"], env=env)
         assert result.returncode in (0, 2), f"Status check failed: {result.stderr}"
 
         status_data = json.loads(result.stdout)
@@ -123,7 +84,7 @@ def test_full_job_lifecycle(
 
     # 4. Download results
     output_dir = tmp_path / "results"
-    result = _run(
+    result = subprocess_runner(
         ["ds01-submit", "results", job_id, "-o", str(output_dir)],
         env=env,
     )
